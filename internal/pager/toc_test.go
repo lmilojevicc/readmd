@@ -15,13 +15,13 @@ func TestExtractHeadings(t *testing.T) {
 		in   string
 		want []heading
 	}{
-		{"nested levels", "# A\n\n## B\n\n### C\n", []heading{{1, "A", 0}, {2, "B", 0}, {3, "C", 0}}},
-		{"duplicates", "## Dup\n\ntext\n\n## Dup\n", []heading{{2, "Dup", 0}, {2, "Dup", 0}}},
-		{"all levels", "##### E\n###### F\n", []heading{{5, "E", 0}, {6, "F", 0}}},
-		{"setext", "Title\n======\n", []heading{{1, "Title", 0}}},
+		{"nested levels", "# A\n\n## B\n\n### C\n", []heading{{1, "A", 0, 0}, {2, "B", 0, 0}, {3, "C", 0, 0}}},
+		{"duplicates", "## Dup\n\ntext\n\n## Dup\n", []heading{{2, "Dup", 0, 0}, {2, "Dup", 0, 0}}},
+		{"all levels", "##### E\n###### F\n", []heading{{5, "E", 0, 0}, {6, "F", 0, 0}}},
+		{"setext", "Title\n======\n", []heading{{1, "Title", 0, 0}}},
 		{"inline markup", "## `code` and *em* and [l](https://x.io)\n",
-			[]heading{{2, "code and em and l https://x.io", 0}}},
-		{"cjk emoji", "## 中文 🎉 head\n", []heading{{2, "中文 🎉 head", 0}}},
+			[]heading{{2, "code and em and l https://x.io", 0, 0}}},
+		{"cjk emoji", "## 中文 🎉 head\n", []heading{{2, "中文 🎉 head", 0, 0}}},
 		{"no headings", "just prose\n\ntext\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,7 +92,13 @@ func TestMapHeadings(t *testing.T) {
 			name:  "decoration-only heading skipped",
 			lines: []string{"", " ## Real", ""},
 			texts: []string{"***", "Real"},
-			want:  []int{3, 1},
+			want:  []int{0, 1},
+		},
+		{
+			name:  "empty heading anchors at previous heading like source mode",
+			lines: []string{"", " ## Real", "", "body", ""},
+			texts: []string{"Real", ""},
+			want:  []int{1, 1},
 		},
 		{
 			name:  "cjk and emoji",

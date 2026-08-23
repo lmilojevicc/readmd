@@ -13,7 +13,6 @@ import (
 type searchState struct {
 	active  bool
 	query   string
-	fwd     bool
 	matches []int
 	pos     int
 	count   int
@@ -39,9 +38,8 @@ func findMatches(lines []string, q string) []int {
 	return out
 }
 
-func (m *Model) openSearch(fwd bool) {
+func (m *Model) openSearch() {
 	m.search.active = true
-	m.search.fwd = fwd
 	m.search.query = ""
 }
 
@@ -52,6 +50,7 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.commitSearch()
 	case "esc":
 		m.search.active = false
+		m.refreshSearch()
 	case "backspace", "ctrl+h":
 		if r := []rune(m.search.query); len(r) > 0 {
 			m.search.query = string(r[:len(r)-1])
@@ -80,7 +79,7 @@ func printable(rs []rune) bool {
 func (m *Model) commitSearch() {
 	m.refreshSearch()
 	if len(m.search.matches) > 0 {
-		m.jumpMatch(m.search.dir(), true)
+		m.jumpMatch(1, true)
 	}
 }
 
@@ -98,13 +97,6 @@ func (m *Model) refreshSearch() {
 			m.search.pos = 0
 		}
 	}
-}
-
-func (s *searchState) dir() int {
-	if s.fwd {
-		return 1
-	}
-	return -1
 }
 
 func (m *Model) jumpMatch(dir int, inclusive bool) {
@@ -140,11 +132,7 @@ func (m *Model) jumpMatch(dir int, inclusive bool) {
 }
 
 func (m *Model) searchPrompt() string {
-	mark := "/"
-	if !m.search.fwd {
-		mark = "?"
-	}
-	s := mark + m.search.query
+	s := "/" + m.search.query
 	if m.search.query != "" {
 		n := m.search.count
 		if n == 0 {

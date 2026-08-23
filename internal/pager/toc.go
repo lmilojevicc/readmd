@@ -12,15 +12,17 @@ import (
 )
 
 type heading struct {
-	level int
-	text  string
-	line  int
+	level   int
+	text    string
+	line    int
+	srcLine int
 }
 
 func extractHeadings(src string) []heading {
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var heads []heading
+	prev := 0
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
@@ -29,7 +31,12 @@ func extractHeadings(src string) []heading {
 		if !ok {
 			return ast.WalkContinue, nil
 		}
-		heads = append(heads, heading{level: h.Level, text: plainText(h, bsrc)})
+		line := prev
+		if h.Lines().Len() > 0 {
+			line = strings.Count(src[:h.Lines().At(0).Start], "\n")
+		}
+		prev = line
+		heads = append(heads, heading{level: h.Level, text: plainText(h, bsrc), srcLine: line})
 		return ast.WalkContinue, nil
 	})
 	return heads
@@ -113,7 +120,9 @@ func mapHeadings(heads []heading, lines []string) {
 		acc += s
 		for hi < len(heads) && lastEnd <= len(acc) {
 			if norm[hi] == "" {
-				heads[hi].line = len(lines)
+				if hi > 0 {
+					heads[hi].line = heads[hi-1].line
+				}
 				hi++
 				continue
 			}
@@ -135,6 +144,10 @@ func mapHeadings(heads []heading, lines []string) {
 		}
 	}
 	for ; hi < len(heads); hi++ {
+		if norm[hi] == "" && hi > 0 {
+			heads[hi].line = heads[hi-1].line
+			continue
+		}
 		heads[hi].line = len(lines)
 	}
 }
@@ -160,7 +173,7 @@ func (m *Model) currentSection() int {
 }
 
 func (m *Model) openTOC() {
-	if len(m.heads) == 0 {
+	if len(m.heads) == 0 || m.tocPanelWidth() == 0 {
 		return
 	}
 	m.tocOpen = true
@@ -223,19 +236,22 @@ func (m *Model) applyOverlay(body string) string {
 	if pw == 0 || len(m.heads) == 0 {
 		return body
 	}
+	return m.overlay(body, pw, m.tocRows(pw, len(strings.Split(body, "\n"))))
+}
+
+func (m *Model) overlay(body string, pw int, rows []string) string {
 	lines := strings.Split(body, "\n")
-	rows := m.tocRows(pw, len(lines))
 	x0 := 0
 	if pw*2 > m.width {
 		x0 = max(0, (m.width-pw)/2)
 	}
-	for i, row := range rows {
-		if row == "" {
+	for i := range lines {
+		if i >= len(rows) || rows[i] == "" {
 			continue
 		}
 		left := ansi.Cut(lines[i], 0, x0)
 		left += strings.Repeat(" ", x0-ansi.StringWidth(left))
-		lines[i] = left + row + ansi.TruncateLeft(lines[i], x0+pw, "")
+		lines[i] = left + rows[i] + ansi.TruncateLeft(lines[i], x0+pw, "")
 	}
 	return strings.Join(lines, "\n")
 }

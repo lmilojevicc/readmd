@@ -35,9 +35,15 @@ type Model struct {
 
 	heads    []heading
 	stripped []string
+	widest   int
 	tocOpen  bool
 	tocSel   int
 	search   searchState
+
+	srcView       bool
+	wrapBeforeSrc bool
+	helpOpen      bool
+	helpTop       int
 
 	gen       int
 	rendering bool
@@ -65,6 +71,8 @@ func (m *Model) SetStyle(name string) error {
 	m.style = st
 	return nil
 }
+
+func (m *Model) SetWrap(wrap bool) { m.wrapMode = wrap }
 
 func (m *Model) Init() tea.Cmd {
 	if m.path == "" {
@@ -96,12 +104,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vp.SetWidth(msg.Width)
 		m.vp.SetHeight(max(1, msg.Height-1))
 		if resized {
+			if m.srcView {
+				m.clampXWidest()
+				return m, nil
+			}
 			return m, m.requestRender()
 		}
 		return m, nil
 
 	case renderedMsg:
 		m.rendering = false
+		if m.srcView {
+			return m, nil
+		}
 		if msg.gen != m.gen {
 			return m, m.requestRender()
 		}
@@ -112,6 +127,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errMsg = ""
 		m.vp.SetContent(msg.content)
 		m.stripped = msg.stripped
+		m.widest = widestLine(msg.stripped)
 		m.heads = msg.heads
 		if m.tocSel >= len(m.heads) {
 			m.tocSel = max(0, len(m.heads)-1)
@@ -122,7 +138,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vp.SetYOffset(restoreOffset(a, m.heads, len(m.stripped)))
 		}
 		m.refreshSearch()
-		m.clampX(msg.content)
+		m.clampXWidest()
 		if m.store != nil {
 			m.store.applyGfx(msg.gfx.tx, msg.gfx.places)
 		}
@@ -155,6 +171,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.handleSearchKey(msg)
 		case m.tocOpen:
 			return m, m.handleTOCKey(msg)
+		case m.helpOpen:
+			m.handleHelpKey(msg)
+			return m, nil
 		default:
 			return m, m.handleNormalKey(msg)
 		}
@@ -174,7 +193,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		m.vp.HalfPageDown()
 	case "u", "ctrl+u":
 		m.vp.HalfPageUp()
-	case "f", " ", "pgdown":
+	case "f", " ", "space", "pgdown":
 		m.vp.PageDown()
 	case "b", "pgup":
 		m.vp.PageUp()
@@ -195,22 +214,30 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 			m.vp.SetXOffset(0)
 		}
 	case "w":
+		if m.srcView {
+			return nil
+		}
 		m.wrapMode = !m.wrapMode
 		m.vp.SetXOffset(0)
 		return m.requestRender()
 	case "T":
+		if m.srcView {
+			return nil
+		}
 		m.collapsed = !m.collapsed
 		return m.requestRender()
 	case "t":
 		m.openTOC()
+	case "s":
+		return m.toggleSource()
 	case "/":
-		m.openSearch(true)
+		m.openSearch()
 	case "?":
-		m.openSearch(false)
+		m.toggleHelp()
 	case "n":
-		m.jumpMatch(m.search.dir(), false)
+		m.jumpMatch(1, false)
 	case "N":
-		m.jumpMatch(-m.search.dir(), false)
+		m.jumpMatch(-1, false)
 	case "r":
 		if m.path == "" {
 			return nil
@@ -221,6 +248,57 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
+
+// toggleSource switches rendered/source views. Both directions anchor the
+// reading position on the nearest heading above the top line; source mode
+// forces nowrap and exit restores the wrap setting held on entry.
+func (m *Model) toggleSource() tea.Cmd {
+	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
+	if m.srcView {
+		m.srcView = false
+		m.wrapMode = m.wrapBeforeSrc
+		return m.requestRender()
+	}
+	m.wrapBeforeSrc = m.wrapMode
+	m.srcView = true
+	m.wrapMode = false
+	m.applySource()
+	return nil
+}
+
+// applySource rebuilds the viewport from sanitized raw markdown: one logical
+// line per row, plain default-fg, no glamour. Heads are re-based onto source
+// lines so TOC jumps and search operate directly on the raw text.
+func (m *Model) applySource() {
+	lines := sourceLines(m.source)
+	heads := extractHeadings(m.source)
+	for i := range heads {
+		heads[i].line = heads[i].srcLine
+	}
+	m.stripped = lines
+	m.heads = heads
+	m.widest = widestLine(lines)
+	if m.tocSel >= len(heads) {
+		m.tocSel = max(0, len(heads)-1)
+	}
+	content := strings.Join(lines, "\n")
+	m.vp.SetContent(content)
+	if m.anchor != nil {
+		a := *m.anchor
+		m.anchor = nil
+		m.vp.SetYOffset(restoreOffset(a, heads, len(lines)))
+	}
+	m.refreshSearch()
+	m.clampXWidest()
+}
+
+func sourceLines(src string) []string {
+	lines := strings.Split(sanitize(src), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSuffix(l, "\r")
+	}
+	return lines
+}
 
 // gfxCmd delivers terminal-global kitty graphics escapes (image
 // transmissions, virtual placements) through the program's own output buffer:
@@ -248,14 +326,20 @@ func (m *Model) quitCmd() tea.Cmd {
 	return tea.Sequence(tea.Raw(payload), tea.Quit)
 }
 
-func (m *Model) clampX(content string) {
+func widestLine(lines []string) int {
 	widest := 0
-	for _, l := range strings.Split(content, "\n") {
+	for _, l := range lines {
 		if w := ansi.StringWidth(l); w > widest {
 			widest = w
 		}
 	}
-	if off, maxX := m.vp.XOffset(), max(0, widest-m.vp.Width()); off > maxX {
+	return widest
+}
+
+// clampXWidest clamps the x offset against m.widest, which is refreshed
+// wherever m.stripped is replaced.
+func (m *Model) clampXWidest() {
+	if off, maxX := m.vp.XOffset(), max(0, m.widest-m.vp.Width()); off > maxX {
 		m.vp.SetXOffset(maxX)
 	}
 }
@@ -264,6 +348,9 @@ func (m *Model) clampX(content string) {
 // in-flight render; if one is running, the stale result is discarded on
 // arrival and this is retried then.
 func (m *Model) requestRender() tea.Cmd {
+	if m.srcView {
+		return nil
+	}
 	m.gen++
 	if m.rendering {
 		return nil
@@ -325,8 +412,11 @@ func (m *Model) View() tea.View {
 	}
 	var b strings.Builder
 	body := m.vp.View()
-	if m.tocOpen {
+	switch {
+	case m.tocOpen:
 		body = m.applyOverlay(body)
+	case m.helpOpen:
+		body = m.applyHelp(body)
 	}
 	b.WriteString(body)
 	b.WriteByte('\n')
@@ -352,8 +442,12 @@ func (m *Model) statusBar() string {
 	if !m.wrapMode {
 		mode = "nowrap"
 	}
+	view := "render"
+	if m.srcView {
+		view = "source"
+	}
 	left := m.title + " "
-	right := mode + " "
+	right := view + " " + mode + " "
 	if !m.wrapMode && m.vp.XOffset() > 0 {
 		right += fmt.Sprintf("→%d ", m.vp.XOffset())
 	}

@@ -233,5 +233,9 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 	m.source = src
 	m.flash = "reloaded"
+	if m.srcView {
+		m.applySource()
+		return nil
+	}
 	return m.requestRender()
 }

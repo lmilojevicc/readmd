@@ -49,8 +49,8 @@ func TestSearchFlow(t *testing.T) {
 	m := newRenderedModel(t, searchDoc, 60, 10)
 
 	press(m, "/")
-	if !m.search.active || !m.search.fwd {
-		t.Fatal("/ opens forward search")
+	if !m.search.active {
+		t.Fatal("/ opens search")
 	}
 	typeQuery(m, "alpha")
 	if m.search.query != "alpha" || m.search.count != 3 {
@@ -99,15 +99,12 @@ func TestSearchFlow(t *testing.T) {
 
 	gamma := findMatches(m.stripped, "gamma")
 	m.vp.GotoTop()
-	press(m, "?")
-	if !m.search.active || m.search.fwd {
-		t.Fatal("? opens backward search")
-	}
+	press(m, "/")
 	typeQuery(m, "gamma")
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.vp.YOffset() != gamma[len(gamma)-1] {
-		t.Fatalf("backward search from top wraps to last gamma: at %d, want %d",
-			m.vp.YOffset(), gamma[len(gamma)-1])
+	if m.vp.YOffset() != gamma[0] {
+		t.Fatalf("forward search from top lands on first gamma: at %d, want %d",
+			m.vp.YOffset(), gamma[0])
 	}
 
 	m3 := newRenderedModel(t, searchDoc, 60, 10)
@@ -117,10 +114,49 @@ func TestSearchFlow(t *testing.T) {
 	y1 := m3.vp.YOffset()
 	press(m3, "/")
 	typeQuery(m3, "nomatch-at-all")
-	pressKey(m3, tea.KeyPressMsg{Code: tea.KeyEscape}) // cancel, keep old matches
+	pressKey(m3, tea.KeyPressMsg{Code: tea.KeyEscape}) // cancel keeps the query
+	if m3.search.query != "nomatch-at-all" || len(m3.search.matches) != 0 {
+		t.Fatalf("esc must keep the query and resync matches: q=%q matches=%v",
+			m3.search.query, m3.search.matches)
+	}
 	press(m3, "n")
-	if m3.vp.YOffset() <= y1 {
-		t.Fatal("after cancel, n uses last committed query")
+	if m3.vp.YOffset() != y1 {
+		t.Fatal("after cancel, n agrees with the cancelled query")
+	}
+}
+
+func TestSearchEscResyncsMatches(t *testing.T) {
+	m := newRenderedModel(t, searchDoc, 60, 10)
+	press(m, "/")
+	typeQuery(m, "gamma")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(m.search.matches) == 0 {
+		t.Fatal("precondition: committed gamma matches")
+	}
+
+	press(m, "/")
+	typeQuery(m, "alpha")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.search.query != "alpha" {
+		t.Fatalf("esc keeps the typed query, got %q", m.search.query)
+	}
+	want := findMatches(m.stripped, "alpha")
+	if len(m.search.matches) != len(want) {
+		t.Fatalf("esc must refresh matches to the kept query: got %v, want %v",
+			m.search.matches, want)
+	}
+	for i := range want {
+		if m.search.matches[i] != want[i] {
+			t.Fatalf("esc must refresh matches to the kept query: got %v, want %v",
+				m.search.matches, want)
+		}
+	}
+
+	m.vp.GotoTop()
+	press(m, "n")
+	if m.vp.YOffset() != want[0] {
+		t.Fatalf("n after esc navigates fresh matches: at %d, want %d",
+			m.vp.YOffset(), want[0])
 	}
 }
 

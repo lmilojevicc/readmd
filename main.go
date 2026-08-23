@@ -20,38 +20,54 @@ func main() {
 	}
 }
 
-const usage = "usage: readmd [--style auto|dark|light|notty] [--no-images] [--no-remote-images] [file]"
+const usage = "usage: readmd [--style auto|dark|light|notty] [--wrap|--no-wrap] [--no-images] [--no-remote-images] [file]"
 
-func run() error {
-	var imgs pager.ImageConfig
-	var style string
-	var pos []string
-	args := os.Args[1:]
+type cliOpts struct {
+	imgs  pager.ImageConfig
+	style string
+	wrap  bool
+	pos   []string
+}
+
+func parseArgs(args []string) (cliOpts, error) {
+	opts := cliOpts{wrap: true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
 		case "--no-images":
-			imgs.NoImages = true
+			opts.imgs.NoImages = true
 		case "--no-remote-images":
-			imgs.NoRemote = true
+			opts.imgs.NoRemote = true
+		case "--wrap":
+			opts.wrap = true
+		case "--no-wrap":
+			opts.wrap = false
 		case "--style":
 			i++
 			if i >= len(args) {
-				return errors.New("--style requires a value (" + usage + ")")
+				return opts, errors.New("--style requires a value (" + usage + ")")
 			}
-			style = args[i]
+			opts.style = args[i]
 		default:
 			if strings.HasPrefix(a, "--style=") {
-				style = strings.TrimPrefix(a, "--style=")
+				opts.style = strings.TrimPrefix(a, "--style=")
 				continue
 			}
 			if strings.HasPrefix(a, "-") && a != "-" {
-				return fmt.Errorf("unknown flag: %s (%s)", a, usage)
+				return opts, fmt.Errorf("unknown flag: %s (%s)", a, usage)
 			}
-			pos = append(pos, a)
+			opts.pos = append(opts.pos, a)
 		}
 	}
-	if len(pos) > 1 {
+	return opts, nil
+}
+
+func run() error {
+	opts, err := parseArgs(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	if len(opts.pos) > 1 {
 		return errors.New(usage)
 	}
 
@@ -61,8 +77,8 @@ func run() error {
 	var src []byte
 	var name string
 	switch {
-	case len(pos) == 1:
-		name = pos[0]
+	case len(opts.pos) == 1:
+		name = opts.pos[0]
 		b, err := os.ReadFile(name)
 		if err != nil {
 			return err
@@ -96,17 +112,18 @@ func run() error {
 	}
 
 	model := pager.New(string(src), name)
-	if err := model.SetStyle(style); err != nil {
+	if err := model.SetStyle(opts.style); err != nil {
 		return err
 	}
+	model.SetWrap(opts.wrap)
 	if name != "" && name != "(stdin)" {
 		model.SetPath(name)
-		imgs.DocDir = filepath.Dir(name)
+		opts.imgs.DocDir = filepath.Dir(name)
 	}
-	model.SetImages(imgs)
+	model.SetImages(opts.imgs)
 	defer model.Close()
 
 	p := tea.NewProgram(model, tea.WithInput(in))
-	_, err := p.Run()
+	_, err = p.Run()
 	return err
 }

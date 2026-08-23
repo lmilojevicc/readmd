@@ -33,8 +33,20 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 - Table-driven tests only, no test frameworks.
 - Golden corpus lives in `testdata/` and is rendered at widths {40, 80, 120}; assertions: no panic, wrap-mode lines never exceed width, graphemes never split.
 - Every phase leaves at least one runnable check that fails if its logic breaks.
-- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 w s T t / ? n N r H q Esc. `t` = TOC overlay (j/k move selection, Enter jump, Esc/q/t close without moving).
+- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 w s T t / ? n N r q Esc. `t` = TOC overlay (j/k move selection, Enter jump, Esc/q/t close without moving). `s` = rendered/source toggle (source forces nowrap; exit restores the wrap setting held on entry). `/` = forward search prompt, `n`/`N` = next/previous match; there is NO backward search. `?` = help overlay (j/k scroll, any other key closes at the exact position).
 
 ## Workflow
 
-Development runs as an agent loop: implementer → three parallel reviewers (spec compliance, edge cases, conventions) → fix worker for any findings → verify build/vet/test before a phase counts as done. Update the roadmap below as phases complete.
+Development runs as an agent loop: implementer → three parallel reviewers (spec compliance, edge cases, conventions) → fix worker for any findings → verify build/vet/test before a phase counts as done.
+
+## Roadmap status
+
+1. [x] Walking skeleton: file/stdin → async glamour render → viewport, less keys, resize re-render
+2. [x] Wide-table ladder + wrap toggle + code overflow policy + golden corpus
+3. [x] TOC overlay/jump-to-heading + incremental search
+4. [x] Live reload (fsnotify)
+5. [x] Images (kitty placeholder grid; alt-text fallback)
+6. [x] Mermaid ASCII + math → Unicode substitution
+7. [x] GFM alert callouts (per-type rail + icon title), palette-adaptive theme
+8. [x] `s` rendered/source view toggle, `?` help overlay, `--wrap/--no-wrap` flags
+9. [ ] Search match highlighting; README
