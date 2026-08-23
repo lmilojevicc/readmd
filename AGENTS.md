@@ -49,4 +49,4 @@ Development runs as an agent loop: implementer → three parallel reviewers (spe
 6. [x] Mermaid ASCII + math → Unicode substitution
 7. [x] GFM alert callouts (per-type rail + icon title), palette-adaptive theme
 8. [x] `s` rendered/source view toggle, `?` help overlay, `--wrap/--no-wrap` flags
-9. [ ] Search match highlighting; README
+9. [x] Search match highlighting; README

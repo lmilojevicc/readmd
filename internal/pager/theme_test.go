@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"charm.land/glamour/v2/styles"
 )
 
@@ -31,6 +33,10 @@ func hasColorSGR(s string) bool {
 
 var paletteSGRRe = regexp.MustCompile(`\x1b\[(3[0-7]|9[0-7])m`)
 
+// paletteBgSGRRe covers palette-index background SGRs; search highlighting
+// relies on them and they stay truecolor-free.
+var paletteBgSGRRe = regexp.MustCompile(`\x1b\[(4[0-7]|10[0-7])m`)
+
 const themeSample = "# Heading\n\n| A | B |\n| - | - |\n| x | y |\n\n```go\nx := 1\n```\n\n> [!CAUTION]\n> danger ahead\n"
 
 func TestPaletteTerminalInvariant(t *testing.T) {
@@ -44,6 +50,23 @@ func TestPaletteTerminalInvariant(t *testing.T) {
 	for _, bad := range []string{"\x1b[38;2;", "\x1b[48;2;", "\x1b[48;5;"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("palette style: output contains %q (truecolor/background escape)", bad)
+		}
+	}
+
+	var styled string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(ansi.Strip(l), "Heading") {
+			ms := findMatches([]string{ansi.Strip(l)}, "Heading")
+			styled = highlightLine(l, []span{{ms[0].start, ms[0].end}}, -1)
+			break
+		}
+	}
+	if !strings.Contains(styled, matchHL) || !paletteBgSGRRe.MatchString(styled) {
+		t.Errorf("search highlight: expected palette bg SGRs, got %q", styled)
+	}
+	for _, bad := range []string{"\x1b[38;2;", "\x1b[48;2;", "\x1b[48;5;"} {
+		if strings.Contains(styled, bad) {
+			t.Errorf("search highlight: output contains %q", bad)
 		}
 	}
 }

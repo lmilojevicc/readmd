@@ -35,6 +35,7 @@ type Model struct {
 
 	heads    []heading
 	stripped []string
+	base     []string
 	widest   int
 	tocOpen  bool
 	tocSel   int
@@ -125,20 +126,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.errMsg = ""
-		m.vp.SetContent(msg.content)
-		m.stripped = msg.stripped
-		m.widest = widestLine(msg.stripped)
-		m.heads = msg.heads
-		if m.tocSel >= len(m.heads) {
-			m.tocSel = max(0, len(m.heads)-1)
-		}
-		if m.anchor != nil {
-			a := *m.anchor
-			m.anchor = nil
-			m.vp.SetYOffset(restoreOffset(a, m.heads, len(m.stripped)))
-		}
-		m.refreshSearch()
-		m.clampXWidest()
+		m.syncView(strings.Split(msg.content, "\n"), msg.stripped, msg.heads)
 		if m.store != nil {
 			m.store.applyGfx(msg.gfx.tx, msg.gfx.places)
 		}
@@ -179,6 +167,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// syncView installs a new line set (rendered or source) into the model.
+// Order matters: refreshSearch runs before the pending anchor is consumed,
+// and x-clamping happens after widest is refreshed.
+func (m *Model) syncView(base, stripped []string, heads []heading) {
+	m.base = base
+	m.stripped = stripped
+	m.heads = heads
+	m.widest = widestLine(stripped)
+	if m.tocSel >= len(heads) {
+		m.tocSel = max(0, len(heads)-1)
+	}
+	m.refreshSearch()
+	if m.anchor != nil {
+		a := *m.anchor
+		m.anchor = nil
+		m.vp.SetYOffset(restoreOffset(a, heads, len(stripped)))
+	}
+	m.clampXWidest()
 }
 
 func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
@@ -249,57 +257,6 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
 
-// toggleSource switches rendered/source views. Both directions anchor the
-// reading position on the nearest heading above the top line; source mode
-// forces nowrap and exit restores the wrap setting held on entry.
-func (m *Model) toggleSource() tea.Cmd {
-	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
-	if m.srcView {
-		m.srcView = false
-		m.wrapMode = m.wrapBeforeSrc
-		return m.requestRender()
-	}
-	m.wrapBeforeSrc = m.wrapMode
-	m.srcView = true
-	m.wrapMode = false
-	m.applySource()
-	return nil
-}
-
-// applySource rebuilds the viewport from sanitized raw markdown: one logical
-// line per row, plain default-fg, no glamour. Heads are re-based onto source
-// lines so TOC jumps and search operate directly on the raw text.
-func (m *Model) applySource() {
-	lines := sourceLines(m.source)
-	heads := extractHeadings(m.source)
-	for i := range heads {
-		heads[i].line = heads[i].srcLine
-	}
-	m.stripped = lines
-	m.heads = heads
-	m.widest = widestLine(lines)
-	if m.tocSel >= len(heads) {
-		m.tocSel = max(0, len(heads)-1)
-	}
-	content := strings.Join(lines, "\n")
-	m.vp.SetContent(content)
-	if m.anchor != nil {
-		a := *m.anchor
-		m.anchor = nil
-		m.vp.SetYOffset(restoreOffset(a, heads, len(lines)))
-	}
-	m.refreshSearch()
-	m.clampXWidest()
-}
-
-func sourceLines(src string) []string {
-	lines := strings.Split(sanitize(src), "\n")
-	for i, l := range lines {
-		lines[i] = strings.TrimSuffix(l, "\r")
-	}
-	return lines
-}
-
 // gfxCmd delivers terminal-global kitty graphics escapes (image
 // transmissions, virtual placements) through the program's own output buffer:
 // the viewport only paints the scrolled window, so escapes embedded in content
@@ -324,24 +281,6 @@ func (m *Model) quitCmd() tea.Cmd {
 		return tea.Quit
 	}
 	return tea.Sequence(tea.Raw(payload), tea.Quit)
-}
-
-func widestLine(lines []string) int {
-	widest := 0
-	for _, l := range lines {
-		if w := ansi.StringWidth(l); w > widest {
-			widest = w
-		}
-	}
-	return widest
-}
-
-// clampXWidest clamps the x offset against m.widest, which is refreshed
-// wherever m.stripped is replaced.
-func (m *Model) clampXWidest() {
-	if off, maxX := m.vp.XOffset(), max(0, m.widest-m.vp.Width()); off > maxX {
-		m.vp.SetXOffset(maxX)
-	}
 }
 
 // requestRender re-renders from raw source. Every call invalidates any

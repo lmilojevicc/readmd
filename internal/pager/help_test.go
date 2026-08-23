@@ -285,7 +285,7 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 		typeQuery(m, "needle")
 		pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 		ms := m.search.matches
-		last := ms[len(ms)-1]
+		last := ms[len(ms)-1].line
 		pressKey(m, keyMsg(key))
 		if m.vp.YOffset() != last {
 			t.Fatalf("N from first match wraps to last: %d, want %d", m.vp.YOffset(), last)

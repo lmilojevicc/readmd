@@ -13,13 +13,17 @@ func TestFindMatches(t *testing.T) {
 		name  string
 		lines []string
 		q     string
-		want  []int
+		want  []match
 	}{
 		{"empty query", []string{"abc"}, "", nil},
-		{"case insensitive", []string{"Hello World", "world peace"}, "WORLD", []int{0, 1}},
-		{"multiple per line", []string{"ab ab ab"}, "ab", []int{0, 0, 0}},
-		{"cjk", []string{"中文测试 middle 中文"}, "中文", []int{0, 0}},
-		{"emoji untouched", []string{"a 🎉 b 🎉"}, "🎉", []int{0, 0}},
+		{"case insensitive", []string{"Hello World", "world peace"}, "WORLD",
+			[]match{{0, 6, 11}, {1, 0, 5}}},
+		{"multiple per line", []string{"ab ab ab"}, "ab",
+			[]match{{0, 0, 2}, {0, 3, 5}, {0, 6, 8}}},
+		{"cjk columns not bytes", []string{"中文测试 middle 中文"}, "中文",
+			[]match{{0, 0, 4}, {0, 16, 20}}},
+		{"emoji untouched", []string{"a 🎉 b 🎉"}, "🎉",
+			[]match{{0, 2, 4}, {0, 7, 9}}},
 		{"no match", []string{"abc", "def"}, "zzz", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -38,6 +42,53 @@ func TestFindMatches(t *testing.T) {
 
 var searchDoc = "# Top\n\nalpha beta\n\ngamma ALPHA delta\n\n" +
 	strings.Repeat("filler\n", 20) + "\nfinal alpha tail\n"
+
+func TestSearchNextWithinTopLine(t *testing.T) {
+	m := newRenderedModel(t, "# aa aa aa\n\n"+strings.Repeat("pad line\n\n", 20), 60, 10)
+	press(m, "/")
+	typeQuery(m, "aa")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	ms := m.search.matches
+	if len(ms) != 3 || ms[0].line != ms[1].line || ms[1].line != ms[2].line {
+		t.Fatalf("precondition: three matches on the top line, got %v", ms)
+	}
+	if m.search.pos != 0 || m.vp.YOffset() != ms[0].line {
+		t.Fatalf("precondition: commit at pos=%d y=%d", m.search.pos, m.vp.YOffset())
+	}
+	for i := 1; i < len(ms); i++ {
+		press(m, "n")
+		if m.search.pos != i || m.vp.YOffset() != ms[i].line {
+			t.Fatalf("n #%d: pos=%d y=%d, want pos=%d y=%d",
+				i, m.search.pos, m.vp.YOffset(), i, ms[i].line)
+		}
+	}
+	press(m, "n")
+	if m.search.pos != 0 {
+		t.Fatalf("n past last must wrap to first, pos=%d", m.search.pos)
+	}
+	press(m, "N")
+	if m.search.pos != len(ms)-1 {
+		t.Fatalf("N from first must wrap to last, pos=%d", m.search.pos)
+	}
+}
+
+func TestFindMatchesCombiningMark(t *testing.T) {
+	nfd := "cafe\u0301 au lait"
+	got := findMatches([]string{nfd}, "cafe\u0301")
+	if len(got) != 1 || got[0] != (match{0, 0, 4}) {
+		t.Fatalf("mark-bearing query vs NFD text: got %v, want [{0 0 4}]", got)
+	}
+	// The mark adds no display column: a match after it still lands at the
+	// same columns as in the NFC string.
+	if got := findMatches([]string{nfd}, "lait"); len(got) != 1 || got[0] != (match{0, 8, 12}) {
+		t.Fatalf("width math changed by zero-width marks: got %v, want [{0 8 12}]", got)
+	}
+	// Precomposed queries stay unmatchable against NFD text; no
+	// normalization is attempted.
+	if got := findMatches([]string{nfd}, "caf\u00e9"); len(got) != 0 {
+		t.Fatalf("NFC query unexpectedly matched NFD text: %v", got)
+	}
+}
 
 func typeQuery(m *Model, q string) {
 	for _, r := range q {
@@ -77,7 +128,7 @@ func TestSearchFlow(t *testing.T) {
 	if m.search.active {
 		t.Fatal("enter commits search")
 	}
-	wantFirst := findMatches(m.stripped, "alpha")[0]
+	wantFirst := findMatches(m.stripped, "alpha")[0].line
 	if m.vp.YOffset() != wantFirst {
 		t.Fatalf("enter jumps to first match: at %d, want %d", m.vp.YOffset(), wantFirst)
 	}
@@ -91,7 +142,7 @@ func TestSearchFlow(t *testing.T) {
 		t.Fatalf("N returns to previous match: at %d, want %d", m.vp.YOffset(), wantFirst)
 	}
 
-	m.vp.SetYOffset(findMatches(m.stripped, "alpha")[2])
+	m.vp.SetYOffset(findMatches(m.stripped, "alpha")[2].line)
 	press(m, "n")
 	if m.vp.YOffset() <= wantFirst {
 		t.Fatal("wrap case covered in TestSearchWrapAround")
@@ -102,7 +153,7 @@ func TestSearchFlow(t *testing.T) {
 	press(m, "/")
 	typeQuery(m, "gamma")
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.vp.YOffset() != gamma[0] {
+	if m.vp.YOffset() != gamma[0].line {
 		t.Fatalf("forward search from top lands on first gamma: at %d, want %d",
 			m.vp.YOffset(), gamma[0])
 	}
@@ -154,7 +205,7 @@ func TestSearchEscResyncsMatches(t *testing.T) {
 
 	m.vp.GotoTop()
 	press(m, "n")
-	if m.vp.YOffset() != want[0] {
+	if m.vp.YOffset() != want[0].line {
 		t.Fatalf("n after esc navigates fresh matches: at %d, want %d",
 			m.vp.YOffset(), want[0])
 	}
@@ -183,8 +234,8 @@ func TestSearchWrapAround(t *testing.T) {
 	if len(ms) != 2 {
 		t.Fatalf("precondition matches %v", ms)
 	}
-	wantFirst := ms[0]
-	last := ms[len(ms)-1]
+	wantFirst := ms[0].line
+	last := ms[len(ms)-1].line
 
 	m.vp.SetYOffset(last)
 	if m.vp.YOffset() != last {

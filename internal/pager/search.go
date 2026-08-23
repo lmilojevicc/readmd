@@ -2,7 +2,7 @@ package pager
 
 import (
 	"fmt"
-	"strings"
+	"math"
 	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
@@ -10,32 +10,100 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type match struct {
+	line       int
+	start, end int
+}
+
 type searchState struct {
 	active  bool
 	query   string
-	matches []int
+	matches []match
 	pos     int
 	count   int
 }
 
-func findMatches(lines []string, q string) []int {
-	if q == "" {
+// findMatches locates every case-insensitive occurrence of q across the
+// visible text of lines, reporting display-column ranges aligned to grapheme
+// cluster boundaries (so wide runes never split).
+func findMatches(lines []string, q string) []match {
+	qr := lowerRunes([]rune(q))
+	if len(qr) == 0 {
 		return nil
 	}
-	lq := strings.ToLower(q)
-	var out []int
+	var out []match
 	for i, l := range lines {
-		ls := strings.ToLower(l)
-		for off := 0; ; {
-			k := strings.Index(ls[off:], lq)
-			if k < 0 {
-				break
+		low, cs, ce := visibleRunes(l)
+		for off := 0; off+len(qr) <= len(low); off++ {
+			if !runesAt(low, off, qr) {
+				continue
 			}
-			out = append(out, i)
-			off += k + len(lq)
+			out = append(out, match{i, cs[off], ce[off+len(qr)-1]})
+			off += len(qr) - 1
 		}
 	}
 	return out
+}
+
+func lowerRunes(rs []rune) []rune {
+	out := make([]rune, len(rs))
+	for i, r := range rs {
+		out[i] = unicode.ToLower(r)
+	}
+	return out
+
+}
+
+// visibleRunes flattens a line into lowered runes paired with each rune's
+// cluster start/end display column.
+func visibleRunes(line string) (low []rune, cs, ce []int) {
+	col, st := 0, byte(0)
+	for rest := line; rest != ""; {
+		seq, w, n, ns := ansi.DecodeSequence(rest, st, nil)
+		st = ns
+		rest = rest[n:]
+		if w == 0 {
+			if !zeroWidthText(seq) {
+				continue
+			}
+			for _, r := range seq {
+				low = append(low, unicode.ToLower(r))
+				cs = append(cs, col)
+				ce = append(ce, col)
+			}
+			continue
+		}
+		for _, r := range seq {
+			low = append(low, unicode.ToLower(r))
+			cs = append(cs, col)
+			ce = append(ce, col+w)
+		}
+		col += w
+	}
+	return low, cs, ce
+}
+
+// zeroWidthText reports whether a width-0 decoded sequence is printable text
+// (combining marks) rather than an escape or control sequence.
+func zeroWidthText(seq string) bool {
+	if seq == "" || seq[0] == '\x1b' || seq[0] == '\x9b' {
+		return false
+	}
+	for _, r := range seq {
+		if r < ' ' || r == 0x7f || !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func runesAt(low []rune, off int, qr []rune) bool {
+	for i, r := range qr {
+		if low[off+i] != r {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Model) openSearch() {
@@ -84,19 +152,12 @@ func (m *Model) commitSearch() {
 }
 
 func (m *Model) refreshSearch() {
-	if m.search.query == "" {
-		m.search.matches = nil
-		m.search.count = 0
-		return
+	m.search.matches = findMatches(m.stripped, m.search.query)
+	m.search.count = len(m.search.matches)
+	if m.search.pos >= len(m.search.matches) {
+		m.search.pos = 0
 	}
-	ms := findMatches(m.stripped, m.search.query)
-	m.search.count = len(ms)
-	if !m.search.active {
-		m.search.matches = ms
-		if m.search.pos >= len(ms) {
-			m.search.pos = 0
-		}
-	}
+	m.applySearchView()
 }
 
 func (m *Model) jumpMatch(dir int, inclusive bool) {
@@ -105,11 +166,23 @@ func (m *Model) jumpMatch(dir int, inclusive bool) {
 		return
 	}
 	top := m.vp.YOffset()
-	eqPass := (dir > 0) != inclusive
+	col := math.MaxInt
+	if p := m.search.pos; p >= 0 && p < len(ms) && ms[p].line == top {
+		col = ms[p].start
+	}
+	before := func(mt match) bool {
+		if mt.line != top {
+			return mt.line < top
+		}
+		if dir > 0 {
+			return !inclusive && mt.start <= col
+		}
+		return mt.start < col
+	}
 	lo, hi := 0, len(ms)
 	for lo < hi {
 		mid := int(uint(lo+hi) >> 1)
-		if ms[mid] < top || (ms[mid] == top && eqPass) {
+		if before(ms[mid]) {
 			lo = mid + 1
 		} else {
 			hi = mid
@@ -128,7 +201,8 @@ func (m *Model) jumpMatch(dir int, inclusive bool) {
 		}
 	}
 	m.search.pos = i
-	m.vp.SetYOffset(ms[i])
+	m.vp.SetYOffset(ms[i].line)
+	m.applySearchView()
 }
 
 func (m *Model) searchPrompt() string {
