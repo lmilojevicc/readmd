@@ -1,0 +1,6 @@
+/readmd
+/dist/
+*.test
+
+# local sample doc, never commit
+/example.md
