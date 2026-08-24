@@ -52,10 +52,6 @@ var helpEntries = []helpEntry{
 
 const helpTitle = "Keybindings"
 
-// modalBg paints the modal's rows and footer hint: palette bright-black bg in
-// default fg, lazygit floating-card style. Sanctioned by the theme invariant.
-const modalBg = "\x1b[100m"
-
 func (m *Model) toggleHelp() {
 	if !m.helpOpen && !m.helpFits() {
 		return
@@ -203,9 +199,8 @@ func (m *Model) helpRows() []string {
 		if top+i < end {
 			l = ansi.Truncate(all[top+i], innerW, "")
 		}
-		// 39 pins default fg: nothing in the list may tint the key column.
 		l += strings.Repeat(" ", max(0, innerW-ansi.StringWidth(l)))
-		box = append(box, border.Render("│")+"\x1b[100m\x1b[39m"+l+"\x1b[m"+border.Render("│"))
+		box = append(box, border.Render("│")+l+border.Render("│"))
 	}
 	foot := border.Render("╰" + strings.Repeat("─", innerW) + "╯")
 	seg := ""
@@ -219,8 +214,7 @@ func (m *Model) helpRows() []string {
 	}
 	seg = ansi.Truncate(seg, innerW-1, "…")
 	if fill := innerW - ansi.StringWidth(seg); fill >= 1 {
-		foot = border.Render("╰"+strings.Repeat("─", fill)) +
-			modalBg + "\x1b[39m" + seg + "\x1b[m" +
+		foot = border.Render("╰"+strings.Repeat("─", fill)) + seg +
 			border.Render("╯")
 	}
 	return append(box, foot)

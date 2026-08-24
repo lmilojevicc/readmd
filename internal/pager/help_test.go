@@ -149,8 +149,10 @@ func assertModalShape(t *testing.T, v string) {
 	if !strings.Contains(v, "\x1b[36m") {
 		t.Fatal("modal border should use palette cyan (SGR 36)")
 	}
-	if !strings.Contains(v, modalBg) {
-		t.Fatal("modal rows must carry the solid palette background")
+	for _, l := range lines { // modal rows only; the status bar carries chips
+		if strings.Contains(l, "│") && paletteBgSGRRe.MatchString(l) {
+			t.Fatal("modal rows must stay transparent (no painted background)")
+		}
 	}
 	for _, bad := range []string{"\x1b[38;2;", "\x1b[48;2;", "\x1b[48;5;", "\x1b[48;"} {
 		if strings.Contains(v, bad) {
@@ -577,19 +579,13 @@ func TestHelpModalFixedSizeAndCentered(t *testing.T) {
 		if !strings.Contains(l, "Navigation") {
 			continue
 		}
-		if i := strings.Index(l, "\x1b[100m"); i >= 0 {
-			tail := l[i:]
-			if i36 := strings.LastIndex(tail, "\x1b[36m"); i36 >= 0 {
-				tail = tail[:i36] // drop the right border and its reset
-			}
-			if n := strings.Count(tail, "\x1b[m"); n != 1 || !strings.HasSuffix(tail, "\x1b[m") {
-				t.Fatalf("modal bg must survive until the final reset: %q", l)
-			}
-			if !strings.Contains(tail, "\x1b[1m") || !strings.Contains(tail, "\x1b[22m") {
-				t.Fatalf("header bold must use attribute codes, not a full reset: %q", l)
-			}
-			return
+		if strings.Contains(l, "\x1b[100m") {
+			t.Fatalf("modal rows must stay transparent: %q", l)
 		}
+		if !strings.Contains(l, "\x1b[1m") || !strings.Contains(l, "\x1b[22m") {
+			t.Fatalf("header bold must use attribute codes, not a full reset: %q", l)
+		}
+		return
 	}
 	t.Fatal("no Navigation header in full listing")
 }

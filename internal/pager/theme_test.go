@@ -37,10 +37,10 @@ var paletteSGRRe = regexp.MustCompile(`\x1b\[(3[0-7]|9[0-7])m`)
 
 // paletteBgSGRRe covers palette-index background SGRs. Amended starship
 // invariant: painted backgrounds are sanctioned ONLY for the search match
-// highlights (43 match / 45 current match), the status-bar brand chip (45),
-// the full-width status-bar strip (100), and the help-modal card background
-// (100); document content — headings, tables, code, alerts — stays bg-free,
-// and truecolor/256-index backgrounds are banned everywhere.
+// highlights (43 match / 45 current match) and the two magenta status-bar
+// chips (45: readmd brand + ? help); document content, the status bar itself
+// and the help modal stay bg-free, and truecolor/256-index backgrounds are
+// banned everywhere.
 var paletteBgSGRRe = regexp.MustCompile(`\x1b\[(4[0-7]|10[0-7])m`)
 
 const themeSample = "# Heading\n\n| A | B |\n| - | - |\n| x | y |\n\n```go\nx := 1\n```\n\n> [!CAUTION]\n> danger ahead\n"
@@ -185,11 +185,11 @@ func TestModelStyleFlowsToRender(t *testing.T) {
 	}
 }
 
-// TestStatusBarStrip pins the amended starship invariant: the bar paints
-// exactly one bright-black strip behind everything (chip, default-fg filename,
-// right side); the chip's magenta stays the only other background, the body
-// stays bg-free without active search, and truecolor/256 bgs stay banned.
-func TestStatusBarStrip(t *testing.T) {
+// TestStatusBarChips pins the starship invariant: the bar is transparent
+// (terminal background) carrying exactly two magenta chips — the readmd brand
+// chip left and the ? help chip right — while the body stays bg-free without
+// active search and truecolor/256 bgs stay banned everywhere.
+func TestStatusBarChips(t *testing.T) {
 	m := New(themeSample, "doc.md")
 	nm, cmd := m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	*m = *nm.(*Model)
@@ -197,23 +197,20 @@ func TestStatusBarStrip(t *testing.T) {
 	v := m.View().Content
 	split := strings.LastIndexByte(v, '\n')
 	body, bar := v[:split], v[split+1:]
-	if !strings.HasPrefix(bar, barStrip+brandChip+barStrip) {
-		t.Fatalf("bar must open the strip, paint the chip over it, then re-arm:\n%q", bar)
+	if !strings.HasPrefix(bar, brandChip) {
+		t.Fatalf("bar must open with the brand chip:\n%q", bar)
 	}
-	if !strings.HasSuffix(bar, "\x1b[m") {
-		t.Fatalf("strip must reset at line end:\n%q", bar)
+	if !strings.HasSuffix(bar, helpChip) {
+		t.Fatalf("bar must end with the help chip:\n%q", bar)
 	}
-	if n := strings.Count(bar, barStrip); n != 2 {
-		t.Fatalf("exactly one strip (open + post-chip re-arm), got %d:\n%q", n, bar)
+	if n := strings.Count(bar, "\x1b[45m"); n != 2 {
+		t.Fatalf("exactly two magenta chips (brand + help), got %d:\n%q", n, bar)
 	}
-	if n := strings.Count(bar, "\x1b[45m"); n != 1 {
-		t.Fatalf("chip must be the only magenta bg, got %d:\n%q", n, bar)
+	if strings.Contains(bar, "\x1b[100m") {
+		t.Fatalf("bar must be transparent (no painted strip):\n%q", bar)
 	}
-	if strings.Contains(bar, "\x1b[90m") {
-		t.Fatalf("filename/info must sit in default fg on the strip:\n%q", bar)
-	}
-	if w := ansi.StringWidth(bar); w != 60 {
-		t.Fatalf("strip must span the terminal: width %d, want 60:\n%q", w, bar)
+	if w := ansi.StringWidth(bar); w > 60 {
+		t.Fatalf("bar must not exceed the terminal: width %d:\n%q", w, bar)
 	}
 	if paletteBgSGRRe.MatchString(body) {
 		t.Error("document body must stay background-free without active search")

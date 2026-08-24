@@ -389,18 +389,14 @@ func splitStrip(content string) []string {
 }
 
 var (
-	errStyle     = lipgloss.NewStyle().Faint(true)
-	hintKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	errStyle = lipgloss.NewStyle().Faint(true)
 )
 
 // brandChip is the glow-style brand chip: palette-index magenta bg with black
-// fg. It is emitted after the status-bar strip SGR so the chip colors win;
-// its trailing reset kills the strip, which View re-arms right after.
+// fg. helpChip mirrors it on the right edge for the `? help` hint.
 const brandChip = "\x1b[45m\x1b[30m\x1b[1m readmd \x1b[m"
 
-// barStrip paints the full-width status bar background: palette bright-black
-// behind chip, filename and right side alike (glow-faithful painted strip).
-const barStrip = "\x1b[100m"
+const helpChip = "\x1b[45m\x1b[30m ? help \x1b[m"
 
 func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
@@ -443,6 +439,10 @@ func (m *Model) View() tea.View {
 // brand chip (painted over the strip), the filename in default fg, and the
 // right side (view mode, scroll percent, help hint). Narrowing drops the hint
 // first, then the percent; the chip is never truncated.
+// statusBar lays out glow-style: brand chip left, filename, right side with
+// view mode, scroll percent and a help chip mirroring the brand chip. The bar
+// itself is transparent (terminal background). Narrowing drops the chip first,
+// then the percent; the brand chip is never truncated.
 func (m *Model) statusBar() string {
 	mode := "wrap"
 	if !m.wrapMode {
@@ -460,9 +460,8 @@ func (m *Model) statusBar() string {
 		info += fmt.Sprintf(" →%d", m.vp.XOffset())
 	}
 	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
-	hint := hintKeyStyle.Render("?") + " help"
 	rights := []string{
-		info + " " + pct + "  " + hint,
+		info + " " + pct + "  " + helpChip,
 		info + " " + pct,
 		info,
 		"",
@@ -486,8 +485,7 @@ func (m *Model) statusBar() string {
 		if name != "" {
 			left = " " + name + strings.Repeat(" ", pad-1)
 		}
-		return barStrip + brandChip + barStrip + left + right + "\x1b[m"
+		return brandChip + left + right
 	}
-	return barStrip + brandChip + barStrip +
-		strings.Repeat(" ", max(0, m.width-lipgloss.Width(brandChip))) + "\x1b[m"
+	return brandChip
 }

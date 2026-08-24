@@ -190,21 +190,21 @@ func TestStatusBarLayout(t *testing.T) {
 		want []string
 		omit []string
 	}{
-		{"full bar", 42, []string{barStrip, "\x1b[45m", "doc.md", "%", "help"}, nil},
-		{"filename truncates first", 30, []string{barStrip, "\x1b[45m", "%", "…"}, []string{"help"}},
-		{"sub-2-char name dropped", 28, []string{barStrip, "\x1b[45m", "%"}, []string{"help", "…"}},
-		{"hint dropped before percent", 26, []string{barStrip, "\x1b[45m", "%"}, []string{"help", "doc.md"}},
-		{"percent dropped before chip", 22, []string{barStrip, "\x1b[45m", "wrap"}, []string{"%", "help"}},
-		{"vw 12 drops the name segment", 12, []string{barStrip, "\x1b[45m"}, []string{"%", "help", "wrap", "…"}},
-		{"bare chip survives", 9, []string{barStrip, "\x1b[45m"}, []string{"%", "help", "wrap"}},
+		{"full bar", 44, []string{brandChip, "doc.md", "%", "help"}, nil},
+		{"filename truncates first", 30, []string{brandChip, "%", "…"}, []string{"help"}},
+		{"sub-2-char name dropped", 28, []string{brandChip, "%"}, []string{"help", "…"}},
+		{"hint dropped before percent", 26, []string{brandChip, "%"}, []string{"help", "doc.md"}},
+		{"percent dropped before chip", 22, []string{brandChip, "wrap"}, []string{"%", "help"}},
+		{"vw 12 drops the name segment", 12, []string{brandChip}, []string{"%", "help", "wrap", "…"}},
+		{"bare chip survives", 9, []string{brandChip}, []string{"%", "help", "wrap"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := bar(tc.w)
-			if !strings.HasPrefix(b, barStrip+brandChip+barStrip) {
-				t.Fatalf("bar must open the strip under the chip:\n%q", b)
+			if !strings.HasPrefix(b, brandChip) {
+				t.Fatalf("bar must open with the brand chip:\n%q", b)
 			}
-			if w := ansi.StringWidth(b); w != tc.w {
-				t.Fatalf("strip must span the terminal: width %d, want %d:\n%q", w, tc.w, b)
+			if w := ansi.StringWidth(b); w > tc.w {
+				t.Fatalf("bar must not exceed the terminal: width %d, want ≤ %d:\n%q", w, tc.w, b)
 			}
 			for _, want := range tc.want {
 				if !strings.Contains(b, want) {
