@@ -68,7 +68,10 @@ func (m *Model) resetHelpView() {
 
 func (m *Model) helpFits() bool { return m.width-4 >= 3 && m.height-4 >= 3 }
 
-func (m *Model) helpVisible() int { return max(0, m.height-6) }
+// helpVisible caps the listing at 20 content rows (22 with borders) so the
+// modal stays a compact centered card on tall terminals; short terminals
+// shrink it via the height-6 bound.
+func (m *Model) helpVisible() int { return max(3, min(m.height-6, 20)) }
 
 // While the filter prompt is open every printable key is literal input; j/k
 // only scroll once the prompt is closed. Esc ladder: prompt/filter clears
