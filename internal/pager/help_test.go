@@ -49,7 +49,7 @@ func TestHelpOverlayFlow(t *testing.T) {
 	if !strings.Contains(m.View().Content, "clear search / quit") {
 		t.Fatal("scrolling should reach the last help entry")
 	}
-	if !strings.Contains(m.View().Content, fmt.Sprintf(" %d of %d ", len(formatHelp()), len(formatHelp()))) {
+	if !strings.Contains(m.View().Content, fmt.Sprintf(" %d of %d ", len(formatHelp("")), len(formatHelp("")))) {
 		t.Fatal("scrolled modal should show the N of M hint")
 	}
 	press(m, "?")
@@ -82,7 +82,7 @@ func TestHelpOverlayFlow(t *testing.T) {
 // so at widths 7-29 a long entry painted past the terminal edge.
 func TestHelpRowsFitNarrowTerminal(t *testing.T) {
 	longest := 0
-	for _, l := range formatHelp() {
+	for _, l := range formatHelp("") {
 		longest = max(longest, ansi.StringWidth(l))
 	}
 	if longest <= 6 {
@@ -149,6 +149,9 @@ func assertModalShape(t *testing.T, v string) {
 	if !strings.Contains(v, "\x1b[36m") {
 		t.Fatal("modal border should use palette cyan (SGR 36)")
 	}
+	if !strings.Contains(v, modalBg) {
+		t.Fatal("modal rows must carry the solid palette background")
+	}
 	for _, bad := range []string{"\x1b[38;2;", "\x1b[48;2;", "\x1b[48;5;", "\x1b[48;"} {
 		if strings.Contains(v, bad) {
 			t.Errorf("modal contains painted-background/truecolor escape %q", bad)
@@ -191,20 +194,33 @@ func TestHelpClosesWithoutSideEffect(t *testing.T) {
 	}
 	press(m, "?")
 	pressKey(m, keyMsg("/"))
+	if !m.helpOpen || !m.helpPrompt || m.search.active {
+		t.Fatal("/ under help opens the filter prompt, never search")
+	}
+	typeQuery(m, "wrap")
+	if m.search.active || m.search.query != "" {
+		t.Fatal("typing into the modal filter must not touch search state")
+	}
+	if len(formatHelp(m.helpFilter)) >= len(formatHelp("")) {
+		t.Fatal("filter must narrow the listing")
+	}
+	pressKey(m, keyMsg("esc"))
+	pressKey(m, keyMsg("esc"))
 	if m.helpOpen || m.search.active {
-		t.Fatal("/ under help closes it and must not open search")
+		t.Fatal("esc ladder: clear filter first, close modal second")
 	}
 	press(m, "?")
+	topBefore := m.helpTop
 	press(m, "j")
-	if !m.helpOpen {
-		t.Fatal("j scrolls help instead of closing")
+	if !m.helpOpen || m.helpTop == topBefore {
+		t.Fatal("with the prompt closed, j scrolls the listing")
 	}
 }
 
 func TestHelpScrollClamps(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 12)
 	press(m, "?")
-	all := len(formatHelp())
+	all := len(formatHelp(""))
 	maxTop := max(0, all-m.helpVisible())
 
 	for range all + 5 {
@@ -222,6 +238,68 @@ func TestHelpScrollClamps(t *testing.T) {
 	}
 	if m.helpTop != 0 {
 		t.Fatalf("k clamp: top %d, want 0", m.helpTop)
+	}
+}
+
+func TestHelpFilter(t *testing.T) {
+	m := newRenderedModel(t, srcDoc, 60, 12)
+	press(m, "?")
+	total := len(formatHelp(""))
+
+	pressKey(m, keyMsg("/"))
+	if !m.helpPrompt {
+		t.Fatal("/ opens the filter prompt inside the modal")
+	}
+	typeQuery(m, "wr")
+	filtered := len(formatHelp(m.helpFilter))
+	if filtered == 0 || filtered >= total {
+		t.Fatalf("filter must narrow the listing: %d of %d", filtered, total)
+	}
+	if v := m.View().Content; strings.Contains(v, fmt.Sprintf(" %d of %d ", total, total)) {
+		t.Fatal("footer must reflect the filtered set while filtering")
+	}
+	if v := m.View().Content; !strings.Contains(ansi.Strip(v), "/wr") {
+		t.Fatal("prompt renders in the modal footer")
+	}
+	pressKey(m, keyMsg("j"))
+	pressKey(m, keyMsg("k"))
+	if !strings.HasSuffix(m.helpFilter, "jk") || m.helpTop != 0 {
+		t.Fatalf("j/k are literal prompt input while filtering (q=%q top=%d)",
+			m.helpFilter, m.helpTop)
+	}
+	for range 2 {
+		pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	}
+	if m.helpFilter != "wr" {
+		t.Fatalf("backspace edits the filter: %q", m.helpFilter)
+	}
+
+	pressKey(m, keyMsg("esc"))
+	if m.helpFilter != "" || m.helpPrompt || !m.helpOpen {
+		t.Fatal("esc ladder: clear the filter first, keep the modal open")
+	}
+	pressKey(m, keyMsg("esc"))
+	if m.helpOpen {
+		t.Fatal("second esc closes the modal")
+	}
+
+	press(m, "?")
+	pressKey(m, keyMsg("/"))
+	typeQuery(m, "page")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.helpPrompt {
+		t.Fatal("enter commits the filter and closes the prompt")
+	}
+	maxTop := max(0, len(formatHelp(m.helpFilter))-m.helpVisible())
+	for range total + 5 {
+		pressKey(m, keyMsg("j"))
+	}
+	if m.helpTop != maxTop {
+		t.Fatalf("scroll clamps to the filtered set: top %d, want %d", m.helpTop, maxTop)
+	}
+	pressKey(m, keyMsg("x"))
+	if m.helpOpen || m.helpFilter != "" || m.helpPrompt {
+		t.Fatal("closing the modal resets filter state")
 	}
 }
 
@@ -446,5 +524,20 @@ func TestQuestionOpensHelpNotSearch(t *testing.T) {
 	}
 	if p := m.searchPrompt(); !strings.HasPrefix(p, "/") {
 		t.Fatalf("prompt is forward-only: %q", p)
+	}
+}
+
+func TestHelpFilterFooterTruncatesLongPrompt(t *testing.T) {
+	m := newRenderedModel(t, tocDoc, 100, 30)
+	press(m, "?")
+	m.helpPrompt = true
+	m.helpFilter = strings.Repeat("x", 120)
+	rows := m.helpRows()
+	foot := rows[len(rows)-1]
+	if w := ansi.StringWidth(foot); w != ansi.StringWidth(rows[0]) {
+		t.Fatalf("footer must match the modal width: %d vs %d", w, ansi.StringWidth(rows[0]))
+	}
+	if !strings.Contains(foot, "…") {
+		t.Fatalf("long filter must truncate into the footer: %q", foot)
 	}
 }

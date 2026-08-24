@@ -45,6 +45,8 @@ type Model struct {
 	wrapBeforeSrc bool
 	helpOpen      bool
 	helpTop       int
+	helpFilter    string
+	helpPrompt    bool
 	edited        bool
 	reader        bool
 
@@ -104,7 +106,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		resized := msg.Width != m.renderW
 		m.renderW = msg.Width
-		m.vp.SetWidth(msg.Width)
+		m.syncVPWidth()
 		m.vp.SetHeight(max(1, msg.Height-1))
 		if resized {
 			if m.srcView {
@@ -227,23 +229,24 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "G", "end":
 		m.vp.GotoBottom()
 	case "h", "left":
-		if !m.wrapMode && !m.reader {
+		if !m.wrapMode {
 			m.vp.ScrollLeft(m.hStep())
 		}
 	case "l", "right":
-		if !m.wrapMode && !m.reader {
+		if !m.wrapMode {
 			m.vp.ScrollRight(m.hStep())
 		}
 	case "0":
-		if !m.wrapMode && !m.reader {
+		if !m.wrapMode {
 			m.vp.SetXOffset(0)
 		}
 	case "w":
-		if m.srcView || m.reader {
+		if m.srcView {
 			return nil
 		}
 		m.wrapMode = !m.wrapMode
 		m.vp.SetXOffset(0)
+		m.syncVPWidth()
 		return m.requestRender()
 	case "T":
 		if m.srcView {
@@ -269,6 +272,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.reader = !m.reader
 		m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
+		m.syncVPWidth()
 		return m.requestRender()
 	case "R":
 		if m.path == "" {
@@ -284,6 +288,18 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
+
+// readerFrame reports whether the viewport is pinned to the reader column in
+// nowrap framing: lines are stored unpadded at natural width and the centered
+// margin exists only as a display prefix (see View). Reader+wrapped instead
+// bakes the margin into the stored lines and keeps the full-width viewport.
+func (m *Model) readerFrame() (on bool, effW int) {
+	if m.reader && !m.wrapMode && !m.srcView {
+		w, _ := readerGeom(m.width, true)
+		return true, w
+	}
+	return false, 0
+}
 
 // gfxCmd delivers terminal-global kitty graphics escapes (image
 // transmissions, virtual placements) through the program's own output buffer:
@@ -329,7 +345,8 @@ func (m *Model) requestRender() tea.Cmd {
 	m.rendering = true
 	w, margin := readerGeom(m.renderW, m.reader)
 	gen, st := m.gen, m.style
-	wrap := m.wrapMode || m.reader
+	wrap := m.wrapMode
+	natural := m.reader && !m.wrapMode
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -342,7 +359,9 @@ func (m *Model) requestRender() tea.Cmd {
 		if err != nil {
 			return renderedMsg{err: err, width: w, gen: gen}
 		}
-		out = padMargin(out, margin)
+		if !natural {
+			out = padMargin(out, margin)
+		}
 		stripped := splitStrip(out)
 		heads := extractHeadings(src)
 		mapHeadings(heads, stripped)
@@ -370,14 +389,18 @@ func splitStrip(content string) []string {
 }
 
 var (
-	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errStyle       = lipgloss.NewStyle().Faint(true)
-	hintKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	errStyle     = lipgloss.NewStyle().Faint(true)
+	hintKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 )
 
-// brandChip is the one sanctioned painted background in the app: a glow-style
-// brand chip with palette-index magenta bg and black fg.
+// brandChip is the glow-style brand chip: palette-index magenta bg with black
+// fg. It is emitted after the status-bar strip SGR so the chip colors win;
+// its trailing reset kills the strip, which View re-arms right after.
 const brandChip = "\x1b[45m\x1b[30m\x1b[1m readmd \x1b[m"
+
+// barStrip paints the full-width status bar background: palette bright-black
+// behind chip, filename and right side alike (glow-faithful painted strip).
+const barStrip = "\x1b[100m"
 
 func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
@@ -387,6 +410,10 @@ func (m *Model) View() tea.View {
 	}
 	var b strings.Builder
 	body := m.vp.View()
+	if on, _ := m.readerFrame(); on {
+		_, margin := readerGeom(m.width, true)
+		body = padMargin(body, margin)
+	}
 	switch {
 	case m.tocOpen:
 		body = m.applyOverlay(body)
@@ -412,12 +439,13 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-// statusBar lays out glow-style: brand chip, then filename, then the right
-// side (view mode, scroll percent, help hint). Narrowing drops the hint
+// statusBar lays out glow-style: a full-width bright-black strip carrying the
+// brand chip (painted over the strip), the filename in default fg, and the
+// right side (view mode, scroll percent, help hint). Narrowing drops the hint
 // first, then the percent; the chip is never truncated.
 func (m *Model) statusBar() string {
 	mode := "wrap"
-	if !m.wrapMode && !m.reader {
+	if !m.wrapMode {
 		mode = "nowrap"
 	}
 	view := "render"
@@ -432,11 +460,11 @@ func (m *Model) statusBar() string {
 		info += fmt.Sprintf(" →%d", m.vp.XOffset())
 	}
 	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
-	hint := hintKeyStyle.Render("?") + statusBarStyle.Render(" help")
+	hint := hintKeyStyle.Render("?") + " help"
 	rights := []string{
-		statusBarStyle.Render(info+" "+pct+"  ") + hint,
-		statusBarStyle.Render(info + " " + pct),
-		statusBarStyle.Render(info),
+		info + " " + pct + "  " + hint,
+		info + " " + pct,
+		info,
 		"",
 	}
 	for _, right := range rights {
@@ -458,7 +486,8 @@ func (m *Model) statusBar() string {
 		if name != "" {
 			left = " " + name + strings.Repeat(" ", pad-1)
 		}
-		return brandChip + statusBarStyle.Render(left) + right
+		return barStrip + brandChip + barStrip + left + right + "\x1b[m"
 	}
-	return brandChip
+	return barStrip + brandChip + barStrip +
+		strings.Repeat(" ", max(0, m.width-lipgloss.Width(brandChip))) + "\x1b[m"
 }

@@ -16,11 +16,13 @@ func (m *Model) toggleSource() tea.Cmd {
 	if m.srcView {
 		m.srcView = false
 		m.wrapMode = m.wrapBeforeSrc
+		m.syncVPWidth()
 		return m.requestRender()
 	}
 	m.wrapBeforeSrc = m.wrapMode
 	m.srcView = true
 	m.wrapMode = false
+	m.syncVPWidth()
 	m.applySource()
 	return nil
 }
@@ -61,4 +63,15 @@ func (m *Model) clampXWidest() {
 	if off, maxX := m.vp.XOffset(), max(0, m.widest-m.vp.Width()); off > maxX {
 		m.vp.SetXOffset(maxX)
 	}
+}
+
+// syncVPWidth pins the viewport to the reader column while the nowrap reader
+// frame is active and restores full terminal width otherwise.
+func (m *Model) syncVPWidth() {
+	if on, effW := m.readerFrame(); on {
+		m.vp.SetWidth(effW)
+	} else {
+		m.vp.SetWidth(m.width)
+	}
+	m.clampXWidest()
 }

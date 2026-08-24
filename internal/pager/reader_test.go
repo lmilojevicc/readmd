@@ -107,37 +107,163 @@ func TestReaderCodeOverflowKeepsMargin(t *testing.T) {
 	}
 }
 
-func TestReaderNowrapFixedColumn(t *testing.T) {
+// Search highlights live in the stored (unpadded) line content in the nowrap
+// reader frame; the margin prefix shifts columns only visually.
+func TestReaderNowrapHighlightAlignment(t *testing.T) {
+	const vw = 100
+	doc := "# Find\n\nneedle here\n\n" + strings.Repeat("tail filler\n\n", 8) +
+		strings.Repeat("z", 200) + "\n"
+	m := newRenderedModel(t, doc, vw, 24)
+	settle(t, m, press(m, "w"))
+	settle(t, m, press(m, "r"))
+
+	m.openSearch()
+	typeQuery(m, "needle")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.vp.XOffset() != 0 {
+		t.Fatalf("precondition: xOffset %d", m.vp.XOffset())
+	}
+	found := false
+	for _, l := range strings.Split(bodyOf(m), "\n") {
+		if !strings.Contains(l, curHL) {
+			continue
+		}
+		found = true
+		s := ansi.Strip(l)
+		if !strings.HasPrefix(s, strings.Repeat(" ", 10)) {
+			t.Fatalf("highlighted line must carry the display margin: %q", s)
+		}
+		if idx := strings.Index(s, "needle"); idx < 0 || idx >= 10+80 {
+			t.Fatalf("match must sit inside the pinned column: col %d", idx)
+		}
+	}
+	if !found {
+		t.Fatal("current match must be highlighted in reader+nowrap")
+	}
+
+	press(m, "l") // pan; highlights stay embedded, frame stays put
+	step := max(8, m.width/10)
+	if off := m.vp.XOffset(); off != step {
+		t.Fatalf("pan precondition: offset %d, want %d", off, step)
+	}
+	stillHL := false
+	for _, l := range strings.Split(m.vp.GetContent(), "\n") {
+		if strings.Contains(l, curHL) {
+			stillHL = true
+		}
+	}
+	if !stillHL {
+		t.Fatal("highlights stay embedded in the cached lines after panning")
+	}
+	assertMarginFramed(t, m, strings.Repeat(" ", 10), 90)
+}
+
+// Reader+nowrap coordinate system (System B): stored lines stay unpadded at
+// natural width; the viewport is pinned to the reader column and the centered
+// margin is a display-only prefix, so content pans within the fixed frame.
+func TestReaderNowrapViewportFrame(t *testing.T) {
+	const vw = 100
 	doc := "# Wide\n\n" + strings.Repeat("word ", 60) + "\n"
-	m := newRenderedModel(t, doc, 100, 24)
+	m := newRenderedModel(t, doc, vw, 24)
 	settle(t, m, press(m, "w")) // start nowrap
 	settle(t, m, press(m, "r"))
 
-	if lead := minLeading(m.stripped); lead != 12 { // 10 margin + glamour's 2 padding
-		t.Fatalf("reader column must keep its margin in nowrap: lead %d", lead)
+	if !m.reader || m.wrapMode {
+		t.Fatalf("precondition: reader=%v wrap=%v", m.reader, m.wrapMode)
 	}
-	if widest := widestLine(m.stripped); widest > 90 {
-		t.Fatalf("reader must render a fixed wrapped column in nowrap, widest %d", widest)
+	if lead := minLeading(m.stripped); lead != 2 { // glamour's own margin only
+		t.Fatalf("stored lines must be unpadded natural width: lead %d", lead)
 	}
-	if v := m.View().Content; !strings.Contains(v, "reader") || strings.Contains(v, "nowrap") {
-		t.Fatal("reader mode must report wrapped rendering in the status bar")
+	if widest := widestLine(m.stripped); widest <= 80 {
+		t.Fatalf("precondition: content overflows the column, widest %d", widest)
 	}
+	if got := m.vp.Width(); got != 80 {
+		t.Fatalf("viewport must pin to the reader column: width %d, want 80", got)
+	}
+	if v := m.View().Content; !strings.Contains(v, "nowrap") || !strings.Contains(v, "reader") {
+		t.Fatalf("status bar must report real wrap state and reader:\n%s", v)
+	}
+	pad := strings.Repeat(" ", 10) // margin at vw=100: (100-80)/2
+	assertMarginFramed(t, m, pad, 90)
 
-	if cmd := press(m, "w"); cmd != nil || m.wrapMode {
-		t.Fatalf("w must be frozen in reader mode (cmd=%v wrapMode=%v)", cmd, m.wrapMode)
-	}
-	if widest := widestLine(m.stripped); widest > 90 {
-		t.Fatalf("w must not widen the reader column, widest %d", widest)
-	}
-
-	settle(t, m, press(m, "r")) // exit reader: nowrap resumes
-	if widest := widestLine(m.stripped); widest <= 90 {
-		t.Fatalf("exiting reader must restore nowrap, widest %d", widest)
-	}
 	step := max(8, m.width/10)
 	press(m, "l")
 	if off := m.vp.XOffset(); off != step {
-		t.Fatalf("l must pan after exiting reader: offset %d, want %d", off, step)
+		t.Fatalf("l pans within the pinned column: offset %d, want %d", off, step)
+	}
+	if got := m.vp.Width(); got != 80 {
+		t.Fatalf("frame width must not stretch on pan: %d", got)
+	}
+	assertMarginFramed(t, m, pad, 90)
+	press(m, "h")
+	if off := m.vp.XOffset(); off != 0 {
+		t.Fatalf("h pans back to column 0: offset %d", off)
+	}
+
+	nm, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	*m = *nm.(*Model)
+	settle(t, m, cmd)
+	if got := m.vp.Width(); got != min(80, 118) {
+		t.Fatalf("resize must re-pin the frame: vp width %d, want 80", got)
+	}
+	pad = strings.Repeat(" ", (120-80)/2)
+	assertMarginFramed(t, m, pad, 100)
+
+	settle(t, m, press(m, "r")) // exit reader
+	if got := m.vp.Width(); got != 120 {
+		t.Fatalf("exit must restore the full-width viewport: %d", got)
+	}
+	if strings.Contains(m.View().Content, "reader") {
+		t.Fatal("status bar must drop the reader indicator on exit")
+	}
+	step = max(8, m.width/10)
+	press(m, "l")
+	if off := m.vp.XOffset(); off != step {
+		t.Fatalf("plain nowrap panning resumes after exit: offset %d, want %d", off, step)
+	}
+}
+
+// w toggles wrap INSIDE reader mode: wrapped path pins the padded 80-col
+// column, toggling back re-frames the viewport.
+func TestReaderWrapToggleInsideReader(t *testing.T) {
+	m := newRenderedModel(t, readerProse, 100, 24)
+	settle(t, m, press(m, "r"))
+	settle(t, m, press(m, "w")) // reader + nowrap
+
+	cmd := press(m, "w") // back to reader + wrapped
+	if cmd == nil || !m.wrapMode {
+		t.Fatalf("w must toggle wrap inside reader (cmd=%v wrap=%v)", cmd, m.wrapMode)
+	}
+	settle(t, m, cmd)
+	if lead := minLeading(m.stripped); lead != 12 { // 10 margin + glamour 2
+		t.Fatalf("wrapped reader keeps padded lines: lead %d", lead)
+	}
+	if widest := widestLine(m.stripped); widest > 90 {
+		t.Fatalf("wrapped reader column must cap at margin+80: widest %d", widest)
+	}
+	if got := m.vp.Width(); got != 100 {
+		t.Fatalf("wrapped reader uses the full-width viewport: %d", got)
+	}
+
+	settle(t, m, press(m, "w")) // reader + nowrap again
+	if m.wrapMode {
+		t.Fatal("second w returns to nowrap")
+	}
+	if got := m.vp.Width(); got != 80 {
+		t.Fatalf("nowrap reader re-pins the viewport: %d, want 80", got)
+	}
+}
+
+func assertMarginFramed(t *testing.T, m *Model, pad string, wantW int) {
+	t.Helper()
+	for i, l := range strings.Split(bodyOf(m), "\n") {
+		s := ansi.Strip(l)
+		if !strings.HasPrefix(s, pad) {
+			t.Fatalf("line %d lacks the display margin frame: %q", i, s)
+		}
+		if w := ansi.StringWidth(l); w != wantW {
+			t.Fatalf("line %d spans %d cols, want margin+column %d", i, w, wantW)
+		}
 	}
 }
 
