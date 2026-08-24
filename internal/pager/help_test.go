@@ -541,3 +541,55 @@ func TestHelpFilterFooterTruncatesLongPrompt(t *testing.T) {
 		t.Fatalf("long filter must truncate into the footer: %q", foot)
 	}
 }
+
+func TestHelpModalFixedSizeAndCentered(t *testing.T) {
+	m := newRenderedModel(t, tocDoc, 100, 30)
+	press(m, "?")
+	full := m.helpRows()
+	if len(full) == 0 {
+		t.Fatal("precondition: modal rows rendered")
+	}
+	fullW := ansi.StringWidth(full[0])
+
+	press(m, "/")
+	typeQuery(m, "half page") // narrows the list sharply
+	narrow := m.helpRows()
+	if len(narrow) != len(full) || ansi.StringWidth(narrow[0]) != fullW {
+		t.Fatalf("filtering must not resize the container: %dx%d -> %dx%d",
+			fullW, len(full), ansi.StringWidth(narrow[0]), len(narrow))
+	}
+
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // clear filter
+	body := m.View().Content
+	lines := strings.Split(body, "\n")
+	first := -1
+	for i, l := range lines {
+		if strings.Contains(l, "Keybindings") {
+			first = i
+			break
+		}
+	}
+	if first <= 0 {
+		t.Fatalf("modal must be vertically centered, title at line %d", first)
+	}
+
+	for _, l := range full {
+		if !strings.Contains(l, "Navigation") {
+			continue
+		}
+		if i := strings.Index(l, "\x1b[100m"); i >= 0 {
+			tail := l[i:]
+			if i36 := strings.LastIndex(tail, "\x1b[36m"); i36 >= 0 {
+				tail = tail[:i36] // drop the right border and its reset
+			}
+			if n := strings.Count(tail, "\x1b[m"); n != 1 || !strings.HasSuffix(tail, "\x1b[m") {
+				t.Fatalf("modal bg must survive until the final reset: %q", l)
+			}
+			if !strings.Contains(tail, "\x1b[1m") || !strings.Contains(tail, "\x1b[22m") {
+				t.Fatalf("header bold must use attribute codes, not a full reset: %q", l)
+			}
+			return
+		}
+	}
+	t.Fatal("no Navigation header in full listing")
+}

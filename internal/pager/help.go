@@ -56,8 +56,6 @@ const helpTitle = "Keybindings"
 // default fg, lazygit floating-card style. Sanctioned by the theme invariant.
 const modalBg = "\x1b[100m"
 
-var helpGroupStyle = lipgloss.NewStyle().Bold(true).MarginLeft(1)
-
 func (m *Model) toggleHelp() {
 	if !m.helpOpen && !m.helpFits() {
 		return
@@ -144,7 +142,9 @@ func formatHelp(filter string) []string {
 		}
 		if e.group != cur {
 			cur = e.group
-			out = append(out, helpGroupStyle.Render(e.group))
+			// Bold via attribute-on/off codes: a full reset here would kill
+			// the modal background for the rest of the row.
+			out = append(out, "\x1b[1m "+e.group+"\x1b[22m")
 		}
 		out = append(out, strings.Repeat(" ", keyPad-len(e.key))+e.key+"  "+e.desc)
 	}
@@ -165,26 +165,31 @@ func (m *Model) applyHelp(body string) string {
 	for _, r := range rows {
 		mw = max(mw, ansi.StringWidth(r))
 	}
-	return m.overlay(body, max(0, (m.width-mw)/2), mw, rows)
+	x := max(0, (m.width-mw)/2)
+	y := max(0, (m.height-len(rows))/2)
+	return m.overlay(body, x, y, mw, rows)
 }
 
+// helpRows builds the modal at a FIXED size: width derives from the
+// unfiltered entry list (filtering never resizes the container) and the
+// height is always helpVisible()+2 content rows, blank-filled when the
+// filtered list runs short.
 func (m *Model) helpRows() []string {
 	all := formatHelp(m.helpFilter)
+	full := formatHelp("")
 	availW, availH := m.width-4, m.height-4
 	if availW < 3 || availH < 3 {
 		return nil
 	}
 	innerW := 0
-	for _, l := range all {
+	for _, l := range full {
 		innerW = max(innerW, ansi.StringWidth(l))
 	}
-	innerW = min(innerW, availW-2)
-	if innerW == 0 {
-		innerW = min(24, availW-2)
-	}
-	top := min(m.helpTop, max(0, len(all)-m.helpVisible()))
-	end := min(len(all), top+m.helpVisible())
-	box := make([]string, 0, end-top+2)
+	innerW = min(max(innerW, min(56, availW-2)), availW-2)
+	visible := m.helpVisible()
+	top := min(m.helpTop, max(0, len(all)-visible))
+	end := min(len(all), top+visible)
+	box := make([]string, 0, visible+2)
 	// Palette index 6 (cyan): visible against rendered text without painting
 	// backgrounds, keeping the starship no-fill invariant for borders.
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
@@ -193,16 +198,20 @@ func (m *Model) helpRows() []string {
 		head = "╭─ " + helpTitle + " " + strings.Repeat("─", fill) + "╮"
 	}
 	box = append(box, border.Render(head))
-	for _, l := range all[top:end] {
-		l = ansi.Truncate(l, innerW, "")
+	for i := 0; i < visible; i++ {
+		l := ""
+		if top+i < end {
+			l = ansi.Truncate(all[top+i], innerW, "")
+		}
+		// 39 pins default fg: nothing in the list may tint the key column.
 		l += strings.Repeat(" ", max(0, innerW-ansi.StringWidth(l)))
-		box = append(box, border.Render("│")+modalBg+l+"\x1b[m"+border.Render("│"))
+		box = append(box, border.Render("│")+"\x1b[100m\x1b[39m"+l+"\x1b[m"+border.Render("│"))
 	}
 	foot := border.Render("╰" + strings.Repeat("─", innerW) + "╯")
 	seg := ""
 	if m.helpPrompt {
 		seg = "/" + m.helpFilter
-	} else if len(all) > m.helpVisible() {
+	} else if len(all) > visible {
 		seg = fmt.Sprintf(" %d of %d ", min(end, len(all)), len(all))
 	}
 	if seg == "" {
@@ -211,7 +220,7 @@ func (m *Model) helpRows() []string {
 	seg = ansi.Truncate(seg, innerW-1, "…")
 	if fill := innerW - ansi.StringWidth(seg); fill >= 1 {
 		foot = border.Render("╰"+strings.Repeat("─", fill)) +
-			modalBg + seg + "\x1b[m" +
+			modalBg + "\x1b[39m" + seg + "\x1b[m" +
 			border.Render("╯")
 	}
 	return append(box, foot)

@@ -240,18 +240,18 @@ func (m *Model) applyOverlay(body string) string {
 	if pw*2 > m.width {
 		x0 = max(0, (m.width-pw)/2)
 	}
-	return m.overlay(body, x0, pw, m.tocRows(pw, len(strings.Split(body, "\n"))))
+	return m.overlay(body, x0, 0, pw, m.tocRows(pw, len(strings.Split(body, "\n"))))
 }
 
-func (m *Model) overlay(body string, x0, pw int, rows []string) string {
+func (m *Model) overlay(body string, x0, y0, pw int, rows []string) string {
 	lines := strings.Split(body, "\n")
 	for i := range lines {
-		if i >= len(rows) || rows[i] == "" {
+		if i < y0 || i >= y0+len(rows) || rows[i-y0] == "" {
 			continue
 		}
 		left := ansi.Cut(lines[i], 0, x0)
 		left += strings.Repeat(" ", x0-ansi.StringWidth(left))
-		lines[i] = left + rows[i] + ansi.TruncateLeft(lines[i], x0+pw, "")
+		lines[i] = left + rows[i-y0] + ansi.TruncateLeft(lines[i], x0+pw, "")
 	}
 	return strings.Join(lines, "\n")
 }
