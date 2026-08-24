@@ -107,21 +107,37 @@ func TestReaderCodeOverflowKeepsMargin(t *testing.T) {
 	}
 }
 
-func TestReaderNowrapCentersAndPans(t *testing.T) {
+func TestReaderNowrapFixedColumn(t *testing.T) {
 	doc := "# Wide\n\n" + strings.Repeat("word ", 60) + "\n"
 	m := newRenderedModel(t, doc, 100, 24)
+	settle(t, m, press(m, "w")) // start nowrap
 	settle(t, m, press(m, "r"))
-	settle(t, m, press(m, "w"))
-	if lead := minLeading(m.stripped); lead != 12 {
-		t.Fatalf("nowrap natural-width lines must keep the margin: lead %d", lead)
+
+	if lead := minLeading(m.stripped); lead != 12 { // 10 margin + glamour's 2 padding
+		t.Fatalf("reader column must keep its margin in nowrap: lead %d", lead)
 	}
-	if widest := widestLine(m.stripped); widest <= 92 {
-		t.Fatalf("nowrap should render past the reader column, widest %d", widest)
+	if widest := widestLine(m.stripped); widest > 90 {
+		t.Fatalf("reader must render a fixed wrapped column in nowrap, widest %d", widest)
+	}
+	if v := m.View().Content; !strings.Contains(v, "reader") || strings.Contains(v, "nowrap") {
+		t.Fatal("reader mode must report wrapped rendering in the status bar")
+	}
+
+	if cmd := press(m, "w"); cmd != nil || m.wrapMode {
+		t.Fatalf("w must be frozen in reader mode (cmd=%v wrapMode=%v)", cmd, m.wrapMode)
+	}
+	if widest := widestLine(m.stripped); widest > 90 {
+		t.Fatalf("w must not widen the reader column, widest %d", widest)
+	}
+
+	settle(t, m, press(m, "r")) // exit reader: nowrap resumes
+	if widest := widestLine(m.stripped); widest <= 90 {
+		t.Fatalf("exiting reader must restore nowrap, widest %d", widest)
 	}
 	step := max(8, m.width/10)
 	press(m, "l")
 	if off := m.vp.XOffset(); off != step {
-		t.Fatalf("l must pan inside reader nowrap: offset %d, want %d", off, step)
+		t.Fatalf("l must pan after exiting reader: offset %d, want %d", off, step)
 	}
 }
 

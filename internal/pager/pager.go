@@ -227,19 +227,19 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "G", "end":
 		m.vp.GotoBottom()
 	case "h", "left":
-		if !m.wrapMode {
+		if !m.wrapMode && !m.reader {
 			m.vp.ScrollLeft(m.hStep())
 		}
 	case "l", "right":
-		if !m.wrapMode {
+		if !m.wrapMode && !m.reader {
 			m.vp.ScrollRight(m.hStep())
 		}
 	case "0":
-		if !m.wrapMode {
+		if !m.wrapMode && !m.reader {
 			m.vp.SetXOffset(0)
 		}
 	case "w":
-		if m.srcView {
+		if m.srcView || m.reader {
 			return nil
 		}
 		m.wrapMode = !m.wrapMode
@@ -328,7 +328,8 @@ func (m *Model) requestRender() tea.Cmd {
 	}
 	m.rendering = true
 	w, margin := readerGeom(m.renderW, m.reader)
-	gen, wrap, st := m.gen, m.wrapMode, m.style
+	gen, st := m.gen, m.style
+	wrap := m.wrapMode || m.reader
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -416,7 +417,7 @@ func (m *Model) View() tea.View {
 // first, then the percent; the chip is never truncated.
 func (m *Model) statusBar() string {
 	mode := "wrap"
-	if !m.wrapMode {
+	if !m.wrapMode && !m.reader {
 		mode = "nowrap"
 	}
 	view := "render"
