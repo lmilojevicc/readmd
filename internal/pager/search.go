@@ -118,6 +118,7 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.commitSearch()
 	case "esc":
 		m.search.active = false
+		m.search.query = ""
 		m.refreshSearch()
 	case "backspace", "ctrl+h":
 		if r := []rune(m.search.query); len(r) > 0 {

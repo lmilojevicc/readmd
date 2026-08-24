@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -170,5 +172,50 @@ func TestViewStatusBar(t *testing.T) {
 	step := max(8, m.width/10)
 	if v := view(); !strings.Contains(v, "nowrap") || !strings.Contains(v, strconv.Itoa(step*2)) {
 		t.Fatalf("status bar should show horizontal offset %d:\n%s", step*2, v)
+	}
+}
+
+func TestStatusBarLayout(t *testing.T) {
+	bar := func(w int) string {
+		m := New(longDoc, "doc.md")
+		nm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: 10})
+		*m = *nm.(*Model)
+		settle(t, m, cmd)
+		v := m.View().Content
+		return v[strings.LastIndexByte(v, '\n')+1:]
+	}
+	for _, tc := range []struct {
+		name string
+		w    int
+		want []string
+		omit []string
+	}{
+		{"full bar", 42, []string{"\x1b[45m", "doc.md", "%", "help"}, nil},
+		{"filename truncates first", 30, []string{"\x1b[45m", "%", "…"}, []string{"help"}},
+		{"sub-2-char name dropped", 28, []string{"\x1b[45m", "%"}, []string{"help", "…"}},
+		{"hint dropped before percent", 26, []string{"\x1b[45m", "%"}, []string{"help", "doc.md"}},
+		{"percent dropped before chip", 22, []string{"\x1b[45m", "wrap"}, []string{"%", "help"}},
+		{"vw 12 drops the name segment", 12, []string{"\x1b[45m"}, []string{"%", "help", "wrap", "…"}},
+		{"bare chip survives", 9, []string{"\x1b[45m"}, []string{"%", "help", "wrap"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bar(tc.w)
+			if !strings.HasPrefix(b, brandChip) {
+				t.Fatalf("bar must start with the brand chip:\n%q", b)
+			}
+			if w := ansi.StringWidth(b); w > tc.w {
+				t.Fatalf("bar width %d exceeds terminal %d:\n%q", w, tc.w, b)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(b, want) {
+					t.Fatalf("bar lacks %q:\n%q", want, b)
+				}
+			}
+			for _, omit := range tc.omit {
+				if strings.Contains(b, omit) {
+					t.Fatalf("bar must drop %q when narrowing:\n%q", omit, b)
+				}
+			}
+		})
 	}
 }

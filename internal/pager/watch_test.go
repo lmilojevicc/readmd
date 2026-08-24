@@ -175,6 +175,41 @@ func TestReloadDeletedThenRecovered(t *testing.T) {
 	}
 }
 
+func TestReadErrorConsumesEditedFlag(t *testing.T) {
+	m := bootModel(t, "# A\n\none\n")
+	m.path = "doc.md"
+	gone := errors.New("file does not exist")
+	m.edited = true
+	m.readFile = func(string) ([]byte, error) { return nil, gone }
+	settle(t, m, m.reload())
+	if m.edited {
+		t.Fatal("read-error reload must consume the edited flag")
+	}
+	if m.flash != "" || !strings.Contains(m.errMsg, gone.Error()) {
+		t.Fatalf("error reload: flash=%q errMsg=%q", m.flash, m.errMsg)
+	}
+
+	m.readFile = func(string) ([]byte, error) { return []byte("# A\n\ntwo\n"), nil }
+	settle(t, m, m.reload())
+	if m.flash != "reloaded" {
+		t.Fatalf("later unrelated reload must flash reloaded, got %q", m.flash)
+	}
+}
+
+func TestSameContentEditStillFlashesEdited(t *testing.T) {
+	m := bootModel(t, "# A\n\none\n")
+	m.path = "doc.md"
+	m.edited = true
+	m.readFile = func(string) ([]byte, error) { return []byte("# A\n\none\n"), nil }
+	settle(t, m, m.reload())
+	if m.flash != "edited" {
+		t.Fatalf("editor exit with byte-identical content must flash edited, got %q", m.flash)
+	}
+	if m.edited {
+		t.Fatal("edited flag must be consumed")
+	}
+}
+
 func TestDocChangedMsgWiring(t *testing.T) {
 	m := New("a\n", "doc.md")
 	m.fw = &fileWatcher{tick: make(chan struct{}, 1), stopped: make(chan struct{})}
@@ -232,12 +267,12 @@ func TestReloadPreservesHeadingAnchor(t *testing.T) {
 
 func TestManualReloadKey(t *testing.T) {
 	m := bootModel(t, "one\n")
-	if cmd := press(m, "r"); cmd != nil {
+	if cmd := press(m, "R"); cmd != nil {
 		t.Fatal("stdin document has nothing to reload")
 	}
 	m.path = "doc.md"
 	m.readFile = func(string) ([]byte, error) { return []byte("two lines\n"), nil }
-	settle(t, m, press(m, "r"))
+	settle(t, m, press(m, "R"))
 	if m.source != "two lines\n" {
 		t.Fatalf("source = %q, want reloaded", m.source)
 	}

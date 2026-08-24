@@ -125,7 +125,7 @@ func TestSourceTOCJumpAndSearch(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 10)
 	press(m, "s")
 
-	press(m, "t")
+	press(m, "o")
 	if !m.tocOpen {
 		t.Fatal("TOC opens in source mode")
 	}
@@ -180,7 +180,7 @@ func TestSourceResizeClampUsesFreshWidest(t *testing.T) {
 	}
 	m.path = "doc.md"
 	m.readFile = func(string) ([]byte, error) { return []byte("short\n"), nil }
-	settle(t, m, press(m, "r"))
+	settle(t, m, press(m, "R"))
 	if x := m.vp.XOffset(); x != 0 {
 		t.Fatalf("reload must re-clamp against the new widest line: %d", x)
 	}
@@ -203,7 +203,7 @@ func TestSourceReloadAppliesInPlace(t *testing.T) {
 	y := m.vp.YOffset()
 	m.path = "doc.md"
 	m.readFile = func(string) ([]byte, error) { return []byte("# Replaced\n\nnew body\n"), nil }
-	settle(t, m, press(m, "r"))
+	settle(t, m, press(m, "R"))
 	if !m.srcView || !strings.Contains(bodyOf(m), "# Replaced") {
 		t.Fatal("reload in source mode must refresh raw content")
 	}

@@ -184,7 +184,7 @@ func (m *Model) openTOC() {
 
 func (m *Model) handleTOCKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
-	case "esc", "q", "t":
+	case "esc", "q", "o":
 		m.tocOpen = false
 	case "enter":
 		if m.tocSel < len(m.heads) {
@@ -236,15 +236,15 @@ func (m *Model) applyOverlay(body string) string {
 	if pw == 0 || len(m.heads) == 0 {
 		return body
 	}
-	return m.overlay(body, pw, m.tocRows(pw, len(strings.Split(body, "\n"))))
-}
-
-func (m *Model) overlay(body string, pw int, rows []string) string {
-	lines := strings.Split(body, "\n")
 	x0 := 0
 	if pw*2 > m.width {
 		x0 = max(0, (m.width-pw)/2)
 	}
+	return m.overlay(body, x0, pw, m.tocRows(pw, len(strings.Split(body, "\n"))))
+}
+
+func (m *Model) overlay(body string, x0, pw int, rows []string) string {
+	lines := strings.Split(body, "\n")
 	for i := range lines {
 		if i >= len(rows) || rows[i] == "" {
 			continue

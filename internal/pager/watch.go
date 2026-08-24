@@ -216,6 +216,12 @@ func (m *Model) reload() tea.Cmd {
 }
 
 func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
+	// The edited flag is consumed by whichever reload lands first — the
+	// editor-exit reload or a watcher tick that fired while the editor ran;
+	// debouncing coalesces them. A read error also burns the flag so a later
+	// unrelated reload cannot flash edited.
+	edited := m.edited
+	m.edited = false
 	if msg.err != nil {
 		m.errMsg = "reload: " + msg.err.Error()
 		return nil
@@ -224,15 +230,23 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 	if src == "" {
 		if m.source != "" {
 			m.errMsg = "file truncated to empty"
+		} else if edited {
+			m.flash = "edited"
 		}
 		return nil
 	}
 	if src == m.source {
+		if edited {
+			m.flash = "edited"
+		}
 		return nil
 	}
 	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 	m.source = src
 	m.flash = "reloaded"
+	if edited {
+		m.flash = "edited"
+	}
 	if m.srcView {
 		m.applySource()
 		return nil

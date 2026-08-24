@@ -25,6 +25,14 @@ func TestLayoutFlowGoldens(t *testing.T) {
 			"┌─────────┐  tagged  ┌─┐     ┌─┐\n│Left side├─────────▶┤B├────▶┤C│\n└─────────┘          └─┘     └─┘"},
 		{"td cjk label", "flowchart TD\nA[中文] --> B[ok]",
 			"┌────┐\n│中文│\n└──┬─┘\n   │\n   ▼\n ┌─┴┐\n │ok│\n └──┘"},
+		{"td cylinder", "flowchart TD\nA --> db[(Database)]",
+			"   ┌─┐\n   │A│\n   └┬┘\n    └┐\n     ▼\n╭────┴───╮\n│Database│\n╰────────╯"},
+		{"lr cylinder", "flowchart LR\napi --> db[(Database)]",
+			"┌───┐     ╭────────╮\n│api├────▶┤Database│\n└───┘     ╰────────╯"},
+		{"td mixed shapes with edge label", "flowchart TD\nA[Box] --> db[(Database)]\nA -->|go| C(Round)",
+			"        ┌───┐\n        │Box│\n        └─┬─┘\n     ┌────┴──────┐\n     │      go   │\n     ▼           ▼\n╭────┴───╮    ┌──┴──┐\n│Database│    │Round│\n╰────────╯    └─────┘"},
+		{"cycle drops closing edge", "flowchart TD\nA --> B\nB --> A",
+			"┌─┐\n│A│\n└┬┘\n │\n ▼\n┌┴┐\n│B│\n└─┘"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := layoutMermaid(tc.in)
@@ -35,6 +43,51 @@ func TestLayoutFlowGoldens(t *testing.T) {
 				t.Errorf("got:\n%s\nwant:\n%s", got, tc.want)
 			}
 		})
+	}
+}
+
+// The exact flowchart from example.md must render end-to-end; its queue --> api
+// edge closes a cycle and is omitted from the drawing as the back edge.
+func TestExampleDocFlowchartGolden(t *testing.T) {
+	in := "flowchart TD\n" +
+		"    user[User] --> lb[Load Balancer]\n" +
+		"    lb --> api[API Server]\n" +
+		"    lb --> ws[WebSocket GW]\n" +
+		"    api --> db[(Database)]\n" +
+		"    api --> cache[Cache]\n" +
+		"    api -->|gRPC| worker[Worker Pool]\n" +
+		"    worker --> queue[Queue] --> api\n"
+	want := `
+                ┌────┐
+                │User│
+                └──┬─┘
+                  ┌┘
+                  ▼
+           ┌──────┴──────┐
+           │Load Balancer│
+           └──────┬──────┘
+          ┌───────┴────────┐
+          ▼                ▼
+    ┌─────┴────┐    ┌──────┴─────┐
+    │API Server│    │WebSocket GW│
+    └─────┬────┘    └────────────┘
+     ┌────┴──────┬─────────────┐
+     │           │gRPC         │
+     ▼           ▼             ▼
+╭────┴───╮    ┌──┴──┐    ┌─────┴─────┐
+│Database│    │Cache│    │Worker Pool│
+╰────────╯    └─────┘    └─────┬─────┘
+                  ┌────────────┘
+                  ▼
+               ┌──┴──┐
+               │Queue│
+               └─────┘`[1:]
+	got, ok := layoutMermaid(in)
+	if !ok {
+		t.Fatalf("unexpected decline:\n%s", in)
+	}
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
@@ -60,8 +113,8 @@ func TestMermaidDeclineMatrix(t *testing.T) {
 		{"thick arrow", "flowchart TD\nA ==> B"},
 		{"graph keyword", "graph TD\nA --> B"},
 		{"bt direction", "flowchart BT\nA --> B"},
-		{"cycle", "flowchart TD\nA --> B\nB --> A"},
 		{"self loop", "flowchart TD\nA --> A"},
+		{"empty cylinder", "flowchart TD\nA[( )] --> B"},
 		{"unclosed bracket", "flowchart TD\nA[B --> B"},
 		{"double circle shape", "flowchart TD\nA((start)) --> B"},
 		{"alt edge label form", "flowchart TD\nA --text--- B"},
@@ -111,6 +164,8 @@ func TestDiagramWidthSanity(t *testing.T) {
 	for _, in := range []string{
 		"flowchart TD\nA[Start] --> B[End]\nA -->|yes| B",
 		"flowchart LR\nA -->|tag| B --> C",
+		"flowchart TD\nA --> db[(Database)]",
+		"flowchart TD\nA --> B\nB --> A",
 		"sequenceDiagram\nA->>B: msg\nNote over A,B: note",
 	} {
 		out, ok := layoutMermaid(in)

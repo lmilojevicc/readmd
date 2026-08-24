@@ -144,6 +144,35 @@ func registerPaletteChroma() {
 	})
 }
 
+// Reader mode: prose renders in a centered reading column capped at
+// readerWidth columns instead of the full terminal width. The column is
+// centered as a BLOCK: every rendered line (including code overflow and
+// no-wrap lines) gets one uniform left margin, so pan/scroll slicing and
+// overlay compositing keep working on ordinary line prefixes.
+const readerWidth = 80
+
+// readerGeom returns the render width to use and the uniform left margin to
+// pad onto every output line. Off = full width, no margin.
+func readerGeom(vw int, on bool) (w, margin int) {
+	if !on {
+		return vw, 0
+	}
+	w = min(readerWidth, max(1, vw-2))
+	return w, max(0, (vw-w)/2)
+}
+
+func padMargin(out string, margin int) string {
+	if margin <= 0 {
+		return out
+	}
+	pad := strings.Repeat(" ", margin)
+	lines := strings.Split(out, "\n")
+	for i := range lines {
+		lines[i] = pad + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func Render(source string, width int, wrap bool) (string, error) {
 	out, _, _, err := renderDoc(imgCtx{}, source, width, wrap, styles.NoTTYStyle)
 	return out, err

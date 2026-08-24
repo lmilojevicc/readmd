@@ -193,9 +193,9 @@ func pressKey(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 func TestTOCOpenJumpClose(t *testing.T) {
 	m := newRenderedModel(t, tocDoc, 60, 10)
 
-	press(m, "t")
+	press(m, "o")
 	if !m.tocOpen || len(m.heads) != 3 {
-		t.Fatalf("t should open TOC with 3 heads, open=%v heads=%d", m.tocOpen, len(m.heads))
+		t.Fatalf("o should open TOC with 3 heads, open=%v heads=%d", m.tocOpen, len(m.heads))
 	}
 	if m.tocSel != 0 {
 		t.Fatal("selection starts at first heading")
@@ -207,7 +207,7 @@ func TestTOCOpenJumpClose(t *testing.T) {
 		t.Fatal("esc closes without moving")
 	}
 
-	press(m, "t")
+	press(m, "o")
 	if m.tocSel != 0 {
 		t.Fatal("reopen restores selection")
 	}
@@ -227,7 +227,7 @@ func TestTOCOpenJumpClose(t *testing.T) {
 	}
 
 	top := m.vp.YOffset()
-	press(m, "t")
+	press(m, "o")
 	if m.tocSel != 1 {
 		t.Fatal("selection persists across close/reopen")
 	}
@@ -237,15 +237,15 @@ func TestTOCOpenJumpClose(t *testing.T) {
 	}
 
 	m2 := newRenderedModel(t, "no headings here\n", 60, 10)
-	press(m2, "t")
+	press(m2, "o")
 	if m2.tocOpen {
-		t.Fatal("t without headings must not open overlay")
+		t.Fatal("o without headings must not open overlay")
 	}
 }
 
 func TestTOCSwallowsUnboundKeys(t *testing.T) {
 	m := newRenderedModel(t, tocDoc, 60, 10)
-	press(m, "t")
+	press(m, "o")
 	yBefore, xBefore := m.vp.YOffset(), m.vp.XOffset()
 	for _, key := range []string{"d", "u", "f", "b", " ", "w", "T", "/", "?", "n", "N"} {
 		if cmd := press(m, key); cmd != nil {
@@ -280,7 +280,7 @@ func TestTOCEnterJumpModes(t *testing.T) {
 			if m.wrapMode != tc.wrap {
 				t.Fatalf("precondition: wrapMode=%v", m.wrapMode)
 			}
-			press(m, "t")
+			press(m, "o")
 			press(m, "j")
 			pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 			if m.tocOpen {
@@ -322,7 +322,7 @@ func TestTOCRowsAndTruncation(t *testing.T) {
 
 func TestOverlayViewComposition(t *testing.T) {
 	m := newRenderedModel(t, tocDoc, 80, 12)
-	press(m, "t")
+	press(m, "o")
 	v := m.View().Content
 	lines := strings.Split(v, "\n")
 	if n := len(lines); n < 2 {
@@ -351,7 +351,7 @@ func TestOverlayViewComposition(t *testing.T) {
 	}
 
 	narrow := newRenderedModel(t, tocDoc, 24, 10)
-	press(narrow, "t")
+	press(narrow, "o")
 	v2 := narrow.View().Content
 	if !strings.Contains(v2, "Alpha") {
 		t.Fatal("narrow terminal should center panel and still show it")

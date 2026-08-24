@@ -33,7 +33,7 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 - Table-driven tests only, no test frameworks.
 - Golden corpus lives in `testdata/` and is rendered at widths {40, 80, 120}; assertions: no panic, wrap-mode lines never exceed width, graphemes never split.
 - Every phase leaves at least one runnable check that fails if its logic breaks.
-- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 w s T t / ? n N r q Esc. `t` = TOC overlay (j/k move selection, Enter jump, Esc/q/t close without moving). `s` = rendered/source toggle (source forces nowrap; exit restores the wrap setting held on entry). `/` = forward search prompt, `n`/`N` = next/previous match; there is NO backward search. `?` = help overlay (j/k scroll, any other key closes at the exact position).
+- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 w s T r o / ? n N R c e q Esc. Lowercase `t` is unbound. `Esc` clears an active search, then quits. `o` = outline (table of contents; j/k move selection, Enter jump, Esc/q/o close without moving). `s` = rendered/source toggle (source forces nowrap; exit restores the wrap setting held on entry). `r` = reader column toggle: render width becomes min(80, vw-2) and every output line gets one uniform left margin (block centering); frozen in source view like w/T; position preserved via the heading anchor; status bar gains a `reader` tag. `R` = reload file (stdin documents refuse). `/` = forward search prompt, `n`/`N` = next/previous match; there is NO backward search. `?` = help overlay (j/k scroll, any other key closes at the exact position). `c` = copy raw markdown via OSC 52 (oversized documents decline with a flash). `e` = edit in $VISUAL/$EDITOR (vi fallback) positioned at the nearest heading above the viewport top via `+N`; stdin documents refuse; editor exit reloads through the live-reload path (flash `edited`, watcher ticks during the edit coalesce with it).
 
 ## Workflow
 
@@ -50,3 +50,4 @@ Development runs as an agent loop: implementer → three parallel reviewers (spe
 7. [x] GFM alert callouts (per-type rail + icon title), palette-adaptive theme
 8. [x] `s` rendered/source view toggle, `?` help overlay, `--wrap/--no-wrap` flags
 9. [x] Search match highlighting; README
+10. [x] Reader mode (`r` centered reading column) with reload moved to `R`; `c` OSC-52 copy + `e` $VISUAL/$EDITOR edit; glow-style status bar; help modal redesign; Esc-clears-search ladder; mermaid cylinder shape + cycle tolerance

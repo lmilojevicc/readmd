@@ -102,9 +102,20 @@ func layoutMermaid(content string) (string, bool) {
 	return "", false
 }
 
+type mmdShape int
+
+const (
+	shapeNone mmdShape = iota
+	shapeSquare
+	shapeRound
+	shapeDiamond
+	shapeCylinder
+)
+
 type mmdNode struct {
 	id    string
 	label string
+	shape mmdShape
 	order int
 }
 
@@ -221,38 +232,62 @@ func lexFlowLine(s string) ([]mmdTok, bool) {
 
 var shapePairs = map[rune]rune{'[': ']', '(': ')', '{': '}'}
 
-func parseNodeTok(t string) (id, label string, shaped bool, ok bool) {
+func parseNodeTok(t string) (id, label string, shape mmdShape, ok bool) {
 	rs := []rune(t)
 	i := 0
 	for i < len(rs) && isIDRune(rs[i]) {
 		i++
 	}
 	if i == 0 {
-		return "", "", false, false
+		return "", "", shapeNone, false
 	}
 	id = string(rs[:i])
 	if i == len(rs) {
-		return id, id, false, true
+		return id, id, shapeNone, true
 	}
-	open := rs[i]
-	close, known := shapePairs[open]
-	if !known || len(rs)-i < 3 || rs[len(rs)-1] != close {
-		return "", "", false, false
+	body, shape, ok := shapeInner([]rune(rs[i:]))
+	if !ok {
+		return "", "", shapeNone, false
 	}
-	inner := rs[i+1 : len(rs)-1]
-	for _, r := range inner {
-		if _, bad := shapePairs[r]; bad || r == ']' || r == ')' || r == '}' {
-			return "", "", false, false
-		}
-	}
-	label = strings.TrimSpace(string(inner))
+	label = strings.TrimSpace(string(body))
 	if len(label) >= 2 && label[0] == '"' && label[len(label)-1] == '"' {
 		label = label[1 : len(label)-1]
 	}
 	if label == "" {
-		return "", "", false, false
+		return "", "", shapeNone, false
 	}
-	return id, label, true, true
+	return id, label, shape, true
+}
+
+// shapeInner validates the runes between a node's outermost shape delimiters.
+// The cylinder [(label)] nests a second pair; its body must not contain shape
+// characters, matching the rule for every other shape.
+func shapeInner(rs []rune) ([]rune, mmdShape, bool) {
+	if len(rs) < 2 {
+		return nil, shapeNone, false
+	}
+	closer, known := shapePairs[rs[0]]
+	if !known || rs[len(rs)-1] != closer {
+		return nil, shapeNone, false
+	}
+	body := rs[1 : len(rs)-1]
+	shape := shapeSquare
+	switch rs[0] {
+	case '(':
+		shape = shapeRound
+	case '{':
+		shape = shapeDiamond
+	case '[':
+		if len(body) >= 2 && body[0] == '(' && body[len(body)-1] == ')' {
+			body, shape = body[1:len(body)-1], shapeCylinder
+		}
+	}
+	for _, r := range body {
+		if _, bad := shapePairs[r]; bad || r == ']' || r == ')' || r == '}' {
+			return nil, shapeNone, false
+		}
+	}
+	return body, shape, true
 }
 
 func isIDRune(r rune) bool {
@@ -264,14 +299,13 @@ func (g *mmdGraph) chain(toks []mmdTok) bool {
 	if len(toks) == 0 || flowKeywords[toks[0].text] {
 		return false
 	}
-	id, label, shaped, ok := parseNodeTok(toks[0].text)
+	id, label, shape, ok := parseNodeTok(toks[0].text)
 	if !ok {
 		return false
 	}
-	if shaped {
-		g.node(id).label = label
-	} else {
-		g.node(id)
+	n := g.node(id)
+	if shape != shapeNone {
+		n.label, n.shape = label, shape
 	}
 	prev := id
 	for i := 1; i < len(toks); i += 2 {
@@ -282,14 +316,16 @@ func (g *mmdGraph) chain(toks []mmdTok) bool {
 		if i+1 >= len(toks) {
 			return false
 		}
-		id2, label2, shaped2, ok := parseNodeTok(toks[i+1].text)
+		id2, label2, shape2, ok := parseNodeTok(toks[i+1].text)
 		if !ok {
 			return false
 		}
-		if shaped2 {
-			g.node(id2).label = label2
-		} else {
-			g.node(id2)
+		if id2 == prev {
+			return false
+		}
+		n2 := g.node(id2)
+		if shape2 != shapeNone {
+			n2.label, n2.shape = label2, shape2
 		}
 		g.edges = append(g.edges, mmdEdge{from: prev, to: id2, label: a.label, arrow: a.text == "-->"})
 		prev = id2
@@ -311,10 +347,45 @@ func parseFlow(lines []string) (*mmdGraph, bool) {
 	return g, true
 }
 
-func assignRanks(g *mmdGraph) ([]int, bool) {
+// assignRanks layers nodes for flow layout. Cycles are tolerated the way the
+// pager draws them: a DFS from each node in declaration order marks cycle-
+// closing edges as back edges; they are excluded from ranking and from
+// drawing (an ASCII layered canvas has no honest way to route an upward
+// arrow), so the rendered diagram shows every acyclic path and silently omits
+// the closing edge. Self loops are declined earlier, in chain().
+func assignRanks(g *mmdGraph) ([]int, map[int]bool, bool) {
+	out := make([][]int, len(g.nodes))
+	for ei := range g.edges {
+		f := g.pos[g.edges[ei].from]
+		out[f] = append(out[f], ei)
+	}
+	state := make([]int8, len(g.nodes))
+	back := map[int]bool{}
+	var dfs func(u int)
+	dfs = func(u int) {
+		state[u] = 1
+		for _, ei := range out[u] {
+			v := g.pos[g.edges[ei].to]
+			switch state[v] {
+			case 0:
+				dfs(v)
+			case 1:
+				back[ei] = true
+			}
+		}
+		state[u] = 2
+	}
+	for i := range g.nodes {
+		if state[i] == 0 {
+			dfs(i)
+		}
+	}
 	indeg := make([]int, len(g.nodes))
 	adj := make([][]int, len(g.nodes))
-	for _, e := range g.edges {
+	for ei, e := range g.edges {
+		if back[ei] {
+			continue
+		}
 		f, t := g.pos[e.from], g.pos[e.to]
 		adj[f] = append(adj[f], t)
 		indeg[t]++
@@ -342,9 +413,9 @@ func assignRanks(g *mmdGraph) ([]int, bool) {
 		}
 	}
 	if done < len(g.nodes) {
-		return nil, false
+		return nil, nil, false
 	}
-	return ranks, true
+	return ranks, back, true
 }
 
 type mmdCell struct {
@@ -544,17 +615,33 @@ func mmdBoxFor(label []string) mmdBox {
 	return mmdBox{w: w + 2, h: len(label) + 2}
 }
 
-func drawMmdBox(cv *mmdCanvas, b mmdBox, label []string, lockInterior bool) {
+// drawMmdBox renders a node. Cylinders [(label)] keep the exact box geometry
+// but swap the four corners for rounded glyphs (╭╮╰╯), approximating the
+// curved caps of mermaid's database shape with zero width math changes.
+func drawMmdBox(cv *mmdCanvas, b mmdBox, label []string, lockInterior, cyl bool) {
 	l, r, t, bo := b.x, b.right(), b.y, b.bot()
 	set := func(x, y int, a byte) {
 		cv.addArms(x, y, a)
 		cv.c[y][x].box = true
 	}
-	set(l, t, armE|armS)
+	corner := func(x, y int, g rune) {
+		cv.setGlyph(x, y, g)
+		cv.c[y][x].box = true
+	}
+	if cyl {
+		corner(l, t, '╭')
+		corner(r, t, '╮')
+		corner(l, bo, '╰')
+		corner(r, bo, '╯')
+	} else {
+		set(l, t, armE|armS)
+		set(r, t, armS|armW)
+		set(l, bo, armN|armE)
+		set(r, bo, armN|armW)
+	}
 	for x := l + 1; x < r; x++ {
 		set(x, t, armE|armW)
 	}
-	set(r, t, armS|armW)
 	for y := t + 1; y < bo; y++ {
 		set(l, y, armN|armS)
 		for x := l + 1; x < r; x++ {
@@ -562,11 +649,9 @@ func drawMmdBox(cv *mmdCanvas, b mmdBox, label []string, lockInterior bool) {
 		}
 		set(r, y, armN|armS)
 	}
-	set(l, bo, armN|armE)
 	for x := l + 1; x < r; x++ {
 		set(x, bo, armE|armW)
 	}
-	set(r, bo, armN|armW)
 	inner := b.w - 2
 	for i, ln := range label {
 		yy := t + 1 + i
@@ -594,10 +679,10 @@ func layoutFlowTD(lines []string) (string, bool) {
 	return renderFlowTD(g)
 }
 
-func flowRows(g *mmdGraph) ([][]*mmdNode, []int, bool) {
-	ranks, ok := assignRanks(g)
+func flowRows(g *mmdGraph) ([][]*mmdNode, []int, map[int]bool, bool) {
+	ranks, back, ok := assignRanks(g)
 	if !ok {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	maxRank := 0
 	for _, r := range ranks {
@@ -607,11 +692,11 @@ func flowRows(g *mmdGraph) ([][]*mmdNode, []int, bool) {
 	for i, n := range g.nodes {
 		rows[ranks[i]] = append(rows[ranks[i]], n)
 	}
-	return rows, ranks, true
+	return rows, ranks, back, true
 }
 
 func renderFlowTD(g *mmdGraph) (string, bool) {
-	rows, ranks, ok := flowRows(g)
+	rows, ranks, back, ok := flowRows(g)
 	if !ok {
 		return "", false
 	}
@@ -669,7 +754,7 @@ func renderFlowTD(g *mmdGraph) (string, bool) {
 			b := boxOf[n.id]
 			b.x, b.y = x, rowY[r]
 			boxOf[n.id] = b
-			drawMmdBox(cv, b, labels[n.id], true)
+			drawMmdBox(cv, b, labels[n.id], true, n.shape == shapeCylinder)
 			x += b.w + mmdHGap
 		}
 	}
@@ -678,7 +763,10 @@ func renderFlowTD(g *mmdGraph) (string, bool) {
 		x, y int
 	}
 	var jobs []labelJob
-	for _, e := range g.edges {
+	for ei, e := range g.edges {
+		if back[ei] {
+			continue
+		}
 		u, v := boxOf[e.from], boxOf[e.to]
 		r := ranks[g.pos[e.from]]
 		sx := u.cx()
@@ -808,7 +896,7 @@ func freeColumn(cv *mmdCanvas, y0, y1, pref int) (int, bool) {
 }
 
 func renderFlowLR(g *mmdGraph) (string, bool) {
-	rows, ranks, ok := flowRows(g)
+	rows, ranks, back, ok := flowRows(g)
 	if !ok {
 		return "", false
 	}
@@ -874,12 +962,15 @@ func renderFlowLR(g *mmdGraph) (string, bool) {
 			b := boxOf[n.id]
 			b.x, b.y = colX[c], yy
 			boxOf[n.id] = b
-			drawMmdBox(cv, b, labels[n.id], true)
+			drawMmdBox(cv, b, labels[n.id], true, n.shape == shapeCylinder)
 			yy += b.h + mmdLRVGap
 		}
 	}
 	var jobs []labelJobLR
-	for _, e := range g.edges {
+	for ei, e := range g.edges {
+		if back[ei] {
+			continue
+		}
 		u, v := boxOf[e.from], boxOf[e.to]
 		c := ranks[g.pos[e.from]]
 		sy := clampInt(u.cy(), u.y+1, u.bot()-1)
@@ -1115,7 +1206,7 @@ func layoutSequence(lines []string) (string, bool) {
 	}
 	cv := newMmdCanvas(max(W, 1), max(y, 1))
 	for _, a := range actors {
-		drawMmdBox(cv, a.box, wrapLabel(a.label, mmdMaxLabel), true)
+		drawMmdBox(cv, a.box, wrapLabel(a.label, mmdMaxLabel), true, false)
 	}
 	for yy := H0; yy < y; yy++ {
 		for _, a := range actors {
@@ -1135,7 +1226,7 @@ func layoutSequence(lines []string) (string, bool) {
 			bx := clampInt(mid-bw/2, 0, max(W-bw, 0))
 			b := mmdBox{x: bx, y: p.y, w: bw, h: p.noteH}
 			cv.clearRect(b)
-			drawMmdBox(cv, b, lines, false)
+			drawMmdBox(cv, b, lines, false, false)
 			continue
 		}
 		lw := ansi.StringWidth(it.text)

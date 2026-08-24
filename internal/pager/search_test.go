@@ -165,18 +165,18 @@ func TestSearchFlow(t *testing.T) {
 	y1 := m3.vp.YOffset()
 	press(m3, "/")
 	typeQuery(m3, "nomatch-at-all")
-	pressKey(m3, tea.KeyPressMsg{Code: tea.KeyEscape}) // cancel keeps the query
-	if m3.search.query != "nomatch-at-all" || len(m3.search.matches) != 0 {
-		t.Fatalf("esc must keep the query and resync matches: q=%q matches=%v",
+	pressKey(m3, tea.KeyPressMsg{Code: tea.KeyEscape}) // cancel clears the search
+	if m3.search.query != "" || len(m3.search.matches) != 0 {
+		t.Fatalf("esc must clear the search: q=%q matches=%v",
 			m3.search.query, m3.search.matches)
 	}
 	press(m3, "n")
 	if m3.vp.YOffset() != y1 {
-		t.Fatal("after cancel, n agrees with the cancelled query")
+		t.Fatal("after clearing, n must not move")
 	}
 }
 
-func TestSearchEscResyncsMatches(t *testing.T) {
+func TestSearchEscClearsThenQuit(t *testing.T) {
 	m := newRenderedModel(t, searchDoc, 60, 10)
 	press(m, "/")
 	typeQuery(m, "gamma")
@@ -185,29 +185,19 @@ func TestSearchEscResyncsMatches(t *testing.T) {
 		t.Fatal("precondition: committed gamma matches")
 	}
 
-	press(m, "/")
-	typeQuery(m, "alpha")
-	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.search.query != "alpha" {
-		t.Fatalf("esc keeps the typed query, got %q", m.search.query)
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // first esc: clear
+	if m.search.query != "" || len(m.search.matches) != 0 {
+		t.Fatalf("esc must clear an active search: q=%q matches=%v",
+			m.search.query, m.search.matches)
 	}
-	want := findMatches(m.stripped, "alpha")
-	if len(m.search.matches) != len(want) {
-		t.Fatalf("esc must refresh matches to the kept query: got %v, want %v",
-			m.search.matches, want)
-	}
-	for i := range want {
-		if m.search.matches[i] != want[i] {
-			t.Fatalf("esc must refresh matches to the kept query: got %v, want %v",
-				m.search.matches, want)
-		}
+	press(m, "n")
+	if len(m.search.matches) != 0 {
+		t.Fatal("n after clearing must not resurrect matches")
 	}
 
-	m.vp.GotoTop()
-	press(m, "n")
-	if m.vp.YOffset() != want[0].line {
-		t.Fatalf("n after esc navigates fresh matches: at %d, want %d",
-			m.vp.YOffset(), want[0])
+	cmd := pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // second esc: quit
+	if cmd == nil {
+		t.Fatal("second esc must quit")
 	}
 }
 
@@ -328,7 +318,7 @@ func TestCtrlCQuitsEverywhere(t *testing.T) {
 		newRenderedModel(t, tocDoc, 60, 10),
 		newRenderedModel(t, tocDoc, 60, 10),
 	}
-	press(docs[0], "t")
+	press(docs[0], "o")
 	press(docs[1], "/")
 	typeQuery(docs[1], "x")
 	for i, m := range docs {

@@ -1,8 +1,11 @@
 package pager
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -37,11 +40,17 @@ func TestHelpOverlayFlow(t *testing.T) {
 			t.Fatalf("help listing lacks %q:\n%s", want, v)
 		}
 	}
+	assertModalShape(t, v)
 	for range 100 {
 		pressKey(m, keyMsg("j"))
 	}
-	if !strings.Contains(m.View().Content, "Other") {
-		t.Fatal("scrolling should reveal the last group")
+	// The last group header can sit just above the clamped window; reaching
+	// the end of the listing is what this asserts.
+	if !strings.Contains(m.View().Content, "clear search / quit") {
+		t.Fatal("scrolling should reach the last help entry")
+	}
+	if !strings.Contains(m.View().Content, fmt.Sprintf(" %d of %d ", len(formatHelp()), len(formatHelp()))) {
+		t.Fatal("scrolled modal should show the N of M hint")
 	}
 	press(m, "?")
 	if m.helpOpen {
@@ -69,21 +78,101 @@ func TestHelpOverlayFlow(t *testing.T) {
 	}
 }
 
-func TestOverlayRefusesZeroPanelWidth(t *testing.T) {
+// Regression: entry rows were padded to the inner panel but never truncated,
+// so at widths 7-29 a long entry painted past the terminal edge.
+func TestHelpRowsFitNarrowTerminal(t *testing.T) {
+	longest := 0
+	for _, l := range formatHelp() {
+		longest = max(longest, ansi.StringWidth(l))
+	}
+	if longest <= 6 {
+		t.Fatal("precondition: listing must exceed the width-12 inner panel")
+	}
+	m := newRenderedModel(t, srcDoc, 12, 20)
+	press(m, "?")
+	if !m.helpOpen {
+		t.Fatal("? opens help at width 12")
+	}
+	for _, l := range strings.Split(m.View().Content, "\n") {
+		if w := ansi.StringWidth(l); w > 12 {
+			t.Fatalf("rendered line is %d cols (> 12): %q", w, ansi.Strip(l))
+		}
+	}
+}
+
+// assertModalShape checks the lazygit-style popup: a rounded bordered box with
+// the title in its top border, horizontally centered over the body, colored
+// only from the ANSI palette.
+func assertModalShape(t *testing.T, v string) {
+	t.Helper()
+	lines := strings.Split(v, "\n")
+	top := -1
+	for i, l := range lines {
+		if s := ansi.Strip(l); strings.Contains(s, "╭─ Keybindings") && strings.Contains(s, "╮") {
+			top = i
+			break
+		}
+	}
+	if top < 0 {
+		t.Fatalf("modal top border with title missing:\n%s", v)
+	}
+	stripped := []rune(ansi.Strip(lines[top]))
+	l, r := -1, -1
+	for i, rr := range stripped {
+		switch rr {
+		case '╭':
+			if l < 0 {
+				l = i
+			}
+		case '╮':
+			if r < 0 {
+				r = i
+			}
+		}
+	}
+	if r < l {
+		t.Fatalf("malformed modal top border:\n%s", string(stripped))
+	}
+	if indent := l; indent != (60-(r-l+1))/2 {
+		t.Fatalf("modal not centered (indent %d):\n%s", indent, string(stripped))
+	}
+	bottom := -1
+	for i := top + 1; i < len(lines); i++ {
+		if strings.Contains(ansi.Strip(lines[i]), "╰") && strings.Contains(ansi.Strip(lines[i]), "╯") {
+			bottom = i
+			break
+		}
+	}
+	if bottom < 0 || bottom-top < 3 {
+		t.Fatalf("modal bottom border missing:\n%s", v)
+	}
+	if !strings.Contains(v, "\x1b[36m") {
+		t.Fatal("modal border should use palette cyan (SGR 36)")
+	}
+	for _, bad := range []string{"\x1b[38;2;", "\x1b[48;2;", "\x1b[48;5;", "\x1b[48;"} {
+		if strings.Contains(v, bad) {
+			t.Errorf("modal contains painted-background/truecolor escape %q", bad)
+		}
+	}
+}
+
+func TestOverlayRefusesTinyPanels(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		key  string
+		w, h int
 		open func(*Model) bool
 	}{
-		{"help", "?", func(m *Model) bool { return m.helpOpen }},
-		{"toc", "t", func(m *Model) bool { return m.tocOpen }},
+		{"help zero width", "?", 4, 10, func(m *Model) bool { return m.helpOpen }},
+		{"toc zero width", "o", 4, 10, func(m *Model) bool { return m.tocOpen }},
+		{"help short height", "?", 40, 5, func(m *Model) bool { return m.helpOpen }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newRenderedModel(t, srcDoc, 4, 10)
+			m := newRenderedModel(t, srcDoc, tc.w, tc.h)
 			y0 := m.vp.YOffset()
 			press(m, tc.key)
 			if tc.open(m) {
-				t.Fatal("must refuse to open when the panel width is 0")
+				t.Fatal("must refuse to open when the panel does not fit")
 			}
 			press(m, "j")
 			if m.vp.YOffset() <= y0 {
@@ -115,9 +204,8 @@ func TestHelpClosesWithoutSideEffect(t *testing.T) {
 func TestHelpScrollClamps(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 12)
 	press(m, "?")
-	height := len(strings.Split(bodyOf(m), "\n"))
 	all := len(formatHelp())
-	maxTop := max(0, all-height)
+	maxTop := max(0, all-m.helpVisible())
 
 	for range all + 5 {
 		pressKey(m, keyMsg("j"))
@@ -259,10 +347,14 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 			t.Fatal("T must toggle collapse and re-render")
 		}
 		settle(t, m, cmd)
-	case "t":
+	case "o":
 		press(m, key)
 		if !m.tocOpen {
-			t.Fatal("t must open TOC")
+			t.Fatal("o must open the outline")
+		}
+		press(m, "t")
+		if !m.tocOpen {
+			t.Fatal("lowercase t is unbound and must not disturb the outline")
 		}
 	case "/":
 		press(m, key)
@@ -291,11 +383,37 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 			t.Fatalf("N from first match wraps to last: %d, want %d", m.vp.YOffset(), last)
 		}
 	case "r":
+		src := m.source
+		cmd := press(m, key)
+		if cmd == nil || !m.reader || m.source != src {
+			t.Fatal("r must toggle the reader column and re-render without reloading")
+		}
+		settle(t, m, cmd)
+		if v := m.View().Content; !strings.Contains(v, "reader") {
+			t.Fatalf("status bar must show the reader indicator:\n%s", v)
+		}
+		settle(t, m, press(m, key))
+		if m.reader {
+			t.Fatal("second r must leave reader mode")
+		}
+	case "R":
 		m.path = "doc.md"
 		m.readFile = func(string) ([]byte, error) { return []byte("# Fresh\n"), nil }
 		settle(t, m, press(m, key))
 		if m.source != "# Fresh\n" {
-			t.Fatal("r must reload the file")
+			t.Fatal("R must reload the file")
+		}
+	case "c":
+		cmd := press(m, key)
+		if cmd == nil || m.flash != "copied" {
+			t.Fatalf("c must stage the OSC 52 copy and flash copied (cmd=%v flash=%q)", cmd, m.flash)
+		}
+		if msg := cmd(); msg == nil {
+			t.Fatal("clipboard command must yield a message")
+		}
+	case "e":
+		if cmd := press(m, key); cmd != nil || m.flash != "cannot edit stdin" {
+			t.Fatalf("stdin documents cannot be edited (cmd=%v flash=%q)", cmd, m.flash)
 		}
 	case "?":
 		press(m, key)

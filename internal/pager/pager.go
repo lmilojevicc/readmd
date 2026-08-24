@@ -45,6 +45,8 @@ type Model struct {
 	wrapBeforeSrc bool
 	helpOpen      bool
 	helpTop       int
+	edited        bool
+	reader        bool
 
 	gen       int
 	rendering bool
@@ -142,6 +144,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reloadDoneMsg:
 		return m, m.applyReload(msg)
 
+	case editedMsg:
+		if msg.err != nil {
+			m.edited = false
+			m.errMsg = "edit: " + msg.err.Error()
+			return m, nil
+		}
+		return m, m.reload()
+
 	case imagesDoneMsg:
 		if msg.left > 0 {
 			return m, nil
@@ -191,7 +201,14 @@ func (m *Model) syncView(base, stripped []string, heads []heading) {
 
 func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
-	case "q", "esc":
+	case "q":
+		return m.quitCmd()
+	case "esc":
+		if m.search.query != "" {
+			m.search.query = ""
+			m.refreshSearch()
+			return nil
+		}
 		return m.quitCmd()
 	case "j", "down":
 		m.vp.ScrollDown(1)
@@ -234,7 +251,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.collapsed = !m.collapsed
 		return m.requestRender()
-	case "t":
+	case "o":
 		m.openTOC()
 	case "s":
 		return m.toggleSource()
@@ -247,10 +264,21 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "N":
 		m.jumpMatch(-1, false)
 	case "r":
+		if m.srcView {
+			return nil
+		}
+		m.reader = !m.reader
+		m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
+		return m.requestRender()
+	case "R":
 		if m.path == "" {
 			return nil
 		}
 		return m.reload()
+	case "c":
+		return m.copyRaw()
+	case "e":
+		return m.editDoc()
 	}
 	return nil
 }
@@ -299,7 +327,8 @@ func (m *Model) requestRender() tea.Cmd {
 		src = collapseTables(src)
 	}
 	m.rendering = true
-	w, gen, wrap, st := m.renderW, m.gen, m.wrapMode, m.style
+	w, margin := readerGeom(m.renderW, m.reader)
+	gen, wrap, st := m.gen, m.wrapMode, m.style
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -312,6 +341,7 @@ func (m *Model) requestRender() tea.Cmd {
 		if err != nil {
 			return renderedMsg{err: err, width: w, gen: gen}
 		}
+		out = padMargin(out, margin)
 		stripped := splitStrip(out)
 		heads := extractHeadings(src)
 		mapHeadings(heads, stripped)
@@ -341,7 +371,12 @@ func splitStrip(content string) []string {
 var (
 	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	errStyle       = lipgloss.NewStyle().Faint(true)
+	hintKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 )
+
+// brandChip is the one sanctioned painted background in the app: a glow-style
+// brand chip with palette-index magenta bg and black fg.
+const brandChip = "\x1b[45m\x1b[30m\x1b[1m readmd \x1b[m"
 
 func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
@@ -376,6 +411,9 @@ func (m *Model) View() tea.View {
 	return v
 }
 
+// statusBar lays out glow-style: brand chip, then filename, then the right
+// side (view mode, scroll percent, help hint). Narrowing drops the hint
+// first, then the percent; the chip is never truncated.
 func (m *Model) statusBar() string {
 	mode := "wrap"
 	if !m.wrapMode {
@@ -385,14 +423,41 @@ func (m *Model) statusBar() string {
 	if m.srcView {
 		view = "source"
 	}
-	left := m.title + " "
-	right := view + " " + mode + " "
-	if !m.wrapMode && m.vp.XOffset() > 0 {
-		right += fmt.Sprintf("→%d ", m.vp.XOffset())
+	info := view + " " + mode
+	if m.reader && !m.srcView {
+		info += " reader"
 	}
-	right += fmt.Sprintf("%3.0f%% ", m.vp.ScrollPercent()*100)
-	right = ansi.Truncate(right, max(0, m.width-lipgloss.Width(left)), "…")
-	left = ansi.Truncate(left, max(0, m.width-lipgloss.Width(right)), "…")
-	gap := max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right))
-	return statusBarStyle.Render(left + strings.Repeat(" ", gap) + right)
+	if !m.wrapMode && m.vp.XOffset() > 0 {
+		info += fmt.Sprintf(" →%d", m.vp.XOffset())
+	}
+	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
+	hint := hintKeyStyle.Render("?") + statusBarStyle.Render(" help")
+	rights := []string{
+		statusBarStyle.Render(info+" "+pct+"  ") + hint,
+		statusBarStyle.Render(info + " " + pct),
+		statusBarStyle.Render(info),
+		"",
+	}
+	for _, right := range rights {
+		avail := m.width - lipgloss.Width(brandChip) - lipgloss.Width(right)
+		if avail < 1 {
+			continue
+		}
+		name := ""
+		if avail > 3 {
+			name = ansi.Truncate(m.title, avail-3, "…")
+			// Name-display floor: below 2 cells a truncated name is a bare
+			// ellipsis; drop the segment unless the whole name fits.
+			if lipgloss.Width(name) < 2 && name != m.title {
+				name = ""
+			}
+		}
+		pad := avail - lipgloss.Width(name)
+		left := strings.Repeat(" ", pad)
+		if name != "" {
+			left = " " + name + strings.Repeat(" ", pad-1)
+		}
+		return brandChip + statusBarStyle.Render(left) + right
+	}
+	return brandChip
 }

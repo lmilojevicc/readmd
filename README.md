@@ -48,13 +48,16 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `g` `G` | top / bottom |
 | `h` `l` `0` | horizontal pan (no-wrap mode), reset |
 | `w` | toggle wrap / no-wrap |
+| `r` | reader column: centered 80-col prose |
 | `s` | toggle rendered / source view |
-| `t` | TOC overlay (`j/k` select, `Enter` jump, `Esc` close) |
+| `o` | outline overlay (`j/k` select, `Enter` jump, `Esc` close) |
 | `T` | collapse tables to key-value records |
 | `/` | search; `n` / `N` next / previous match (highlighted) |
 | `?` | help overlay |
-| `r` | reload file |
-| `q` `Esc` | quit |
+| `R` | reload file |
+| `c` | copy raw markdown to clipboard (OSC 52) |
+| `e` | edit in `$VISUAL`/`$EDITOR` at the nearest heading |
+| `q` `Esc` | quit (`Esc` first clears an active search) |
 
 ## Features
 

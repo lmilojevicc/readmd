@@ -156,7 +156,7 @@ func TestSearchHighlightsRenderedView(t *testing.T) {
 
 	press(m, "/")
 	typeQuery(m, "alpha")
-	if v := m.View().Content; countSGRWith(v, "43") == 0 || countSGRWith(v, "45") == 0 {
+	if v := bodyOf(m); countSGRWith(v, "43") == 0 || countSGRWith(v, "45") == 0 {
 		t.Fatal("highlight applies incrementally while typing")
 	}
 
@@ -206,11 +206,14 @@ func TestSearchPromptTrueMatchCount(t *testing.T) {
 	}
 }
 
+// hlPresent scopes highlight SGR counting to the document body: the status
+// bar's brand chip legitimately carries a 45 background.
+func hlPresent(m *Model) bool {
+	body := bodyOf(m)
+	return countSGRWith(body, "43") > 0 && countSGRWith(body, "45") > 0
+}
+
 func TestSearchHighlightLifecycle(t *testing.T) {
-	hlPresent := func(m *Model) bool {
-		v := m.View().Content
-		return countSGRWith(v, "43") > 0 && countSGRWith(v, "45") > 0
-	}
 	m := newRenderedModel(t, hlDoc, 60, 12)
 
 	press(m, "/")
@@ -221,7 +224,7 @@ func TestSearchHighlightLifecycle(t *testing.T) {
 	for range len("alpha") {
 		pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
-	if v := m.View().Content; countSGRWith(v, "43") > 0 || countSGRWith(v, "45") > 0 {
+	if v := bodyOf(m); countSGRWith(v, "43") > 0 || countSGRWith(v, "45") > 0 {
 		t.Fatal("empty query removes all highlights")
 	}
 
@@ -230,17 +233,24 @@ func TestSearchHighlightLifecycle(t *testing.T) {
 		t.Fatal("re-typing re-applies highlights")
 	}
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if !hlPresent(m) || m.search.active {
-		t.Fatal("cancel keeps the query and its highlights")
+	if hlPresent(m) || m.search.active || m.search.query != "" {
+		t.Fatal("cancel clears the query and its highlights")
 	}
 	settle(t, m, nil)
 	press(m, "n")
-	if !hlPresent(m) {
-		t.Fatal("n after cancel keeps highlights")
+	if hlPresent(m) {
+		t.Fatal("n after clearing must not resurrect highlights")
 	}
 	settle(t, m, press(m, "T"))
+	if hlPresent(m) {
+		t.Fatal("re-render on T must not resurrect highlights")
+	}
+
+	press(m, "/")
+	typeQuery(m, "alpha")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !hlPresent(m) {
-		t.Fatal("re-render on T re-derives highlights from state")
+		t.Fatal("precondition: highlights active for resize checks")
 	}
 
 	nm, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
@@ -252,7 +262,7 @@ func TestSearchHighlightLifecycle(t *testing.T) {
 
 	press(m, "/")
 	typeQuery(m, "alphax")
-	if v := m.View().Content; countSGRWith(v, "43") > 0 || countSGRWith(v, "45") > 0 {
+	if v := bodyOf(m); countSGRWith(v, "43") > 0 || countSGRWith(v, "45") > 0 {
 		t.Fatal("query change drops stale ranges immediately")
 	}
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
@@ -288,7 +298,7 @@ func TestSearchHighlightsSourceView(t *testing.T) {
 
 	m.path = "doc.md"
 	m.readFile = func(string) ([]byte, error) { return []byte("# Replaced\n\nbeta fresh\n"), nil }
-	settle(t, m, press(m, "r"))
+	settle(t, m, press(m, "R"))
 	body = bodyOf(m)
 	if countSGRWith(body, "43")+countSGRWith(body, "45") == 0 ||
 		!strings.Contains(ansi.Strip(body), "beta fresh") {

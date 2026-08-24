@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -36,29 +37,36 @@ var helpEntries = []helpEntry{
 	{"w", "toggle wrap", "Modes"},
 	{"s", "rendered/source view", "Modes"},
 	{"T", "collapse tables", "Modes"},
-	{"t", "table of contents", "Modes"},
+	{"r", "toggle reader column", "Modes"},
+	{"o", "outline (table of contents)", "Modes"},
 	{"/", "search forward", "Search"},
 	{"n", "next match", "Search"},
 	{"N", "previous match", "Search"},
-	{"r", "reload file", "Other"},
+	{"R", "reload file", "Other"},
+	{"c", "copy raw markdown", "Other"},
+	{"e", "edit document in $EDITOR", "Other"},
 	{"?", "help", "Other"},
 	{"q", "quit", "Other"},
-	{"esc", "quit", "Other"},
+	{"esc", "clear search / quit", "Other"},
 }
 
-const helpMaxWidth = 34
+const helpTitle = "Keybindings"
 
 var helpGroupStyle = lipgloss.NewStyle().Bold(true).MarginLeft(1)
 
 func (m *Model) toggleHelp() {
-	if !m.helpOpen && m.helpPanelWidth() == 0 {
+	if !m.helpOpen && !m.helpFits() {
 		return
 	}
 	m.helpOpen = !m.helpOpen
 	m.helpTop = 0
 }
 
-// Any key closes the help; j/k scroll when the listing overflows the panel.
+func (m *Model) helpFits() bool { return m.width-4 >= 3 && m.height-4 >= 3 }
+
+func (m *Model) helpVisible() int { return max(0, m.height-6) }
+
+// Any key closes the help; j/k scroll when the listing overflows the modal.
 func (m *Model) handleHelpKey(msg tea.KeyMsg) {
 	switch msg.String() {
 	case "j", "down":
@@ -71,7 +79,7 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) {
 }
 
 func (m *Model) scrollHelp(d int) {
-	maxTop := max(0, len(formatHelp())-m.vp.Height())
+	maxTop := max(0, len(formatHelp())-m.helpVisible())
 	m.helpTop = min(max(0, m.helpTop+d), maxTop)
 }
 
@@ -89,32 +97,56 @@ func formatHelp() []string {
 			cur = e.group
 			out = append(out, helpGroupStyle.Render(e.group))
 		}
-		out = append(out, "  "+e.key+strings.Repeat(" ", keyPad-len(e.key))+"  "+e.desc)
+		out = append(out, strings.Repeat(" ", keyPad-len(e.key))+e.key+"  "+e.desc)
 	}
 	return out
 }
 
-func (m *Model) helpPanelWidth() int {
-	return min(helpMaxWidth, max(0, m.width-4))
-}
-
 func (m *Model) applyHelp(body string) string {
-	pw := m.helpPanelWidth()
-	if pw == 0 {
+	rows := m.helpRows()
+	if len(rows) == 0 {
 		return body
 	}
-	return m.overlay(body, pw, m.helpRows(pw, len(strings.Split(body, "\n"))))
+	mw := 0
+	for _, r := range rows {
+		mw = max(mw, ansi.StringWidth(r))
+	}
+	return m.overlay(body, max(0, (m.width-mw)/2), mw, rows)
 }
 
-func (m *Model) helpRows(pw, height int) []string {
-	rows := make([]string, height)
-	if pw == 0 || height == 0 {
-		return rows
-	}
+func (m *Model) helpRows() []string {
 	all := formatHelp()
-	top := min(m.helpTop, max(0, len(all)-height))
-	for i := 0; i < height && top+i < len(all); i++ {
-		rows[i] = ansi.Truncate(all[top+i], pw, "…")
+	availW, availH := m.width-4, m.height-4
+	if availW < 3 || availH < 3 {
+		return nil
 	}
-	return rows
+	innerW := 0
+	for _, l := range all {
+		innerW = max(innerW, ansi.StringWidth(l))
+	}
+	innerW = min(innerW, availW-2)
+	top := min(m.helpTop, max(0, len(all)-m.helpVisible()))
+	end := min(len(all), top+m.helpVisible())
+	box := make([]string, 0, end-top+2)
+	// Palette index 6 (cyan): visible against rendered text without painting
+	// backgrounds, keeping the starship no-fill invariant.
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	head := "╭" + strings.Repeat("─", innerW) + "╮"
+	if fill := innerW - len(helpTitle) - 3; fill >= 1 {
+		head = "╭─ " + helpTitle + " " + strings.Repeat("─", fill) + "╮"
+	}
+	box = append(box, border.Render(head))
+	for _, l := range all[top:end] {
+		l = ansi.Truncate(l, innerW, "")
+		l += strings.Repeat(" ", max(0, innerW-ansi.StringWidth(l)))
+		box = append(box, border.Render("│")+l+border.Render("│"))
+	}
+	foot := "╰" + strings.Repeat("─", innerW) + "╯"
+	if len(all) > m.helpVisible() {
+		hint := fmt.Sprintf(" %d of %d ", min(end, len(all)), len(all))
+		if fill := innerW - ansi.StringWidth(hint); fill >= 1 {
+			foot = "╰" + strings.Repeat("─", fill) + hint + "╯"
+		}
+	}
+	return append(box, border.Render(foot))
 }
