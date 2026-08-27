@@ -42,10 +42,6 @@ func TestModelModes(t *testing.T) {
 	if !m.wrapMode {
 		t.Fatal("wrap mode is default")
 	}
-	press(m, "h")
-	if off := m.vp.XOffset(); off != 0 {
-		t.Fatalf("h in wrap mode must not pan, got %d", off)
-	}
 
 	if cmd := press(m, "w"); cmd == nil {
 		t.Fatal("w should re-render")
@@ -87,6 +83,92 @@ func TestModelModes(t *testing.T) {
 		t.Fatalf("w toggles back to wrap (cmd=%v wrapMode=%v)", cmd, m.wrapMode)
 	} else {
 		settle(t, m, cmd)
+	}
+}
+
+func TestWrappedHorizontalPan(t *testing.T) {
+	const longMermaid = "```mermaid\n" +
+		"flowchart LR\n" +
+		"A[Alpha] --> B[Bravo]\n" +
+		"B --> C[Charlie]\n" +
+		"C --> D[Delta]\n" +
+		"D --> E[Echo]\n" +
+		"E --> F[Foxtrot]\n" +
+		"F --> G[Golf]\n" +
+		"G --> H[Hotel]\n" +
+		"H --> I[India]\n" +
+		"I --> J[Juliet]\n" +
+		"J --> K[Kilo]\n" +
+		"K --> L[Lima]\n" +
+		"```\n"
+
+	for _, tc := range []struct {
+		name         string
+		doc          string
+		wantOverflow bool
+	}{
+		{"long Mermaid diagram", longMermaid, true},
+		{"short prose", "short line\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(tc.doc, "diagram.md")
+			nm, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
+			*m = *nm.(*Model)
+			settle(t, m, cmd)
+			if !m.wrapMode || m.reader {
+				t.Fatalf("precondition: regular wrapped mode (wrap=%v reader=%v)", m.wrapMode, m.reader)
+			}
+
+			before := m.vp.View()
+			if tc.wantOverflow {
+				if m.widest <= m.vp.Width() {
+					t.Fatalf("precondition: rendered diagram width %d must exceed viewport %d", m.widest, m.vp.Width())
+				}
+				press(m, "l")
+				right := m.vp.XOffset()
+				if right == 0 {
+					t.Fatal("l must pan overflowing wrapped content")
+				}
+				if after := m.vp.View(); after == before {
+					t.Fatal("horizontal pan must change the visible diagram slice")
+				}
+				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "→"+strconv.Itoa(right)) {
+					t.Fatalf("status must report wrapped horizontal offset %d: %q", right, status)
+				}
+				press(m, "h")
+				if off := m.vp.XOffset(); off >= right {
+					t.Fatalf("h must pan left from %d, got %d", right, off)
+				}
+				press(m, "l")
+				press(m, "0")
+				if off := m.vp.XOffset(); off != 0 {
+					t.Fatalf("0 must reset wrapped horizontal pan, got %d", off)
+				}
+				press(m, "l")
+				settle(t, m, press(m, "r"))
+				if !m.reader || m.vp.XOffset() != 0 {
+					t.Fatalf("wrapped reader mode must retain its unpanned frame (reader=%v offset=%d)", m.reader, m.vp.XOffset())
+				}
+				press(m, "l")
+				if off := m.vp.XOffset(); off != 0 {
+					t.Fatalf("wrapped reader mode must ignore horizontal pan, got offset %d", off)
+				}
+				return
+			}
+
+			if m.widest > m.vp.Width() {
+				t.Fatalf("precondition: short content width %d exceeds viewport %d", m.widest, m.vp.Width())
+			}
+			for _, key := range []string{"l", "h", "0"} {
+				press(m, key)
+			}
+			if off := m.vp.XOffset(); off != 0 {
+				t.Fatalf("non-overflowing content must stay at offset 0, got %d", off)
+			}
+			if after := m.vp.View(); after != before {
+				t.Fatal("horizontal keys must not disturb non-overflowing content")
+			}
+		})
 	}
 }
 

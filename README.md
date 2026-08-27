@@ -46,7 +46,7 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 |-----|--------|
 | `j` `k` / `d` `u` / `ctrl+d` `ctrl+u` / `f` `b` `space` | line / half-page / page |
 | `g` `G` | top / bottom |
-| `h` `l` `0` | horizontal pan (no-wrap mode), reset |
+| `h` `l` `0` | horizontal pan in no-wrap or wide regular view, reset |
 | `w` | toggle wrap / no-wrap |
 | `r` | reader column: centered 120-col prose |
 | `s` | toggle rendered / source view |

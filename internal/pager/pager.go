@@ -229,15 +229,15 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "G", "end":
 		m.vp.GotoBottom()
 	case "h", "left":
-		if !m.wrapMode {
+		if m.canPanHorizontally() {
 			m.vp.ScrollLeft(m.hStep())
 		}
 	case "l", "right":
-		if !m.wrapMode {
+		if m.canPanHorizontally() {
 			m.vp.ScrollRight(m.hStep())
 		}
 	case "0":
-		if !m.wrapMode {
+		if m.canPanHorizontally() {
 			m.vp.SetXOffset(0)
 		}
 	case "w":
@@ -271,6 +271,9 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		m.reader = !m.reader
+		if m.reader && m.wrapMode {
+			m.vp.SetXOffset(0)
+		}
 		m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 		m.syncVPWidth()
 		return m.requestRender()
@@ -288,6 +291,10 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
+
+func (m *Model) canPanHorizontally() bool {
+	return !m.wrapMode || (!m.reader && m.widest > m.vp.Width())
+}
 
 // readerFrame reports whether the viewport is pinned to the reader column in
 // nowrap framing: lines are stored unpadded at natural width and the centered
@@ -453,7 +460,7 @@ func (m *Model) statusBar() string {
 	if m.reader && !m.srcView {
 		info += " reader"
 	}
-	if !m.wrapMode && m.vp.XOffset() > 0 {
+	if m.vp.XOffset() > 0 {
 		info += fmt.Sprintf(" →%d", m.vp.XOffset())
 	}
 	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
