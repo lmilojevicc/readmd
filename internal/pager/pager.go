@@ -390,6 +390,7 @@ func splitStrip(content string) []string {
 
 var (
 	errStyle = lipgloss.NewStyle().Faint(true)
+	dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 // brandChip is the glow-style brand chip: palette-index magenta bg with black
@@ -435,14 +436,10 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-// statusBar lays out glow-style: a full-width bright-black strip carrying the
-// brand chip (painted over the strip), the filename in default fg, and the
-// right side (view mode, scroll percent, help hint). Narrowing drops the hint
-// first, then the percent; the chip is never truncated.
-// statusBar lays out glow-style: brand chip left, filename, right side with
-// view mode, scroll percent and a help chip mirroring the brand chip. The bar
-// itself is transparent (terminal background). Narrowing drops the chip first,
-// then the percent; the brand chip is never truncated.
+// statusBar lays out glow-style: brand chip left, dimmed filename and view
+// info, right side with scroll percent and a help chip mirroring the brand
+// chip. The bar itself is transparent (terminal background). Narrowing drops
+// the help chip first, then the percent; the brand chip is never truncated.
 func (m *Model) statusBar() string {
 	mode := "wrap"
 	if !m.wrapMode {
@@ -461,9 +458,9 @@ func (m *Model) statusBar() string {
 	}
 	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
 	rights := []string{
-		info + " " + pct + "  " + helpChip,
-		info + " " + pct,
-		info,
+		dimStyle.Render(info+" "+pct) + "  " + helpChip,
+		dimStyle.Render(info + " " + pct),
+		dimStyle.Render(info),
 		"",
 	}
 	for _, right := range rights {
@@ -483,7 +480,7 @@ func (m *Model) statusBar() string {
 		pad := avail - lipgloss.Width(name)
 		left := strings.Repeat(" ", pad)
 		if name != "" {
-			left = " " + name + strings.Repeat(" ", pad-1)
+			left = " " + dimStyle.Render(name) + strings.Repeat(" ", pad-1)
 		}
 		return brandChip + left + right
 	}

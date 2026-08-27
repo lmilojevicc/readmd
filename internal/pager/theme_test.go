@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -208,6 +209,14 @@ func TestStatusBarChips(t *testing.T) {
 	}
 	if strings.Contains(bar, "\x1b[100m") {
 		t.Fatalf("bar must be transparent (no painted strip):\n%q", bar)
+	}
+	for _, want := range []string{
+		dimStyle.Render("doc.md"),
+		dimStyle.Render("render wrap " + fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)),
+	} {
+		if !strings.Contains(bar, want) {
+			t.Fatalf("filename and view info must use the dim palette style; missing %q in:\n%q", want, bar)
+		}
 	}
 	if w := ansi.StringWidth(bar); w > 60 {
 		t.Fatalf("bar must not exceed the terminal: width %d:\n%q", w, bar)

@@ -48,7 +48,7 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `g` `G` | top / bottom |
 | `h` `l` `0` | horizontal pan (no-wrap mode), reset |
 | `w` | toggle wrap / no-wrap |
-| `r` | reader column: centered 80-col prose |
+| `r` | reader column: centered 120-col prose |
 | `s` | toggle rendered / source view |
 | `o` | outline overlay (`j/k` select, `Enter` jump, `Esc` close) |
 | `T` | collapse tables to key-value records |
