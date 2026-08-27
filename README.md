@@ -11,10 +11,9 @@ go build -o readmd . && ./readmd example.md
 
 ## Why
 
-- **Wide tables** are a ladder, not a compromise: fit-width cell wrapping by
-  default, `w` for natural-width no-wrap with column panning, `T` to collapse
-  any table into key-value records. Transforms happen in markdown space, never
-  by editing ANSI.
+- **Wide tables** start in nowrap mode with column panning; `w` toggles wrap,
+  and `T` collapses any table into key-value records.
+  Transforms happen in markdown space, never by editing ANSI.
 - **GitHub-style callouts** (`> [!NOTE]`) get a per-type colored rail and icon
   title, nvim render-markdown style.
 - **Terminal-adaptive color**: the default theme is built purely from your
@@ -29,14 +28,14 @@ go build -o readmd . && ./readmd example.md
 ```sh
 readmd README.md          # pager
 cat notes.md | readmd     # stdin when piped
-readmd --no-wrap doc.md   # start panned, not wrapped
+readmd --wrap doc.md      # opt into wrapped rendering
 readmd --style dark a.md  # fixed theme instead of palette-adaptive
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `--style auto\|dark\|light\|notty` | theme (default `auto`: follows terminal palette) |
-| `--wrap` / `--no-wrap` | initial wrap mode (default wrapped) |
+| `--wrap` / `--no-wrap` | initial layout mode (default nowrap) |
 | `--no-images` | never render figures as graphics |
 | `--no-remote-images` | local images only, no network |
 
@@ -46,8 +45,8 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 |-----|--------|
 | `j` `k` / `d` `u` / `ctrl+d` `ctrl+u` / `f` `b` `space` | line / half-page / page |
 | `g` `G` | top / bottom |
-| `h` `l` `0` | horizontal pan in no-wrap or wide regular view, reset |
-| `w` | toggle wrap / no-wrap |
+| `h` `l` `0` | horizontal pan when content is wide, reset |
+| `w` | toggle wrap / nowrap |
 | `r` | reader column: centered 120-col prose |
 | `s` | toggle rendered / source view |
 | `o` | outline overlay (`j/k` select, `Enter` jump, `Esc` close) |

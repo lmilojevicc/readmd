@@ -178,6 +178,7 @@ var tocDoc = "# Alpha\n\n" + strings.Repeat("para line\n", 15) +
 func newRenderedModel(t *testing.T, src string, w, h int) *Model {
 	t.Helper()
 	m := New(src, "doc.md")
+	m.SetWrap(true)
 	nm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	*m = *nm.(*Model)
 	settle(t, m, cmd)

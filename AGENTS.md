@@ -22,7 +22,7 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 - Cache the RAW markdown source. On resize / wrap-toggle / reload, re-render FROM SOURCE. Never re-wrap cached ANSI strings.
 - Render off the UI thread in a `tea.Cmd`; the viewport model owns scrolling.
 - Horizontal scroll offsets are stored in display COLUMNS, sliced grapheme-aware — never byte or rune counts (CJK/emoji correctness).
-- Wide-table ladder (in order): 1) fit-width per-cell wrap (default), 2) `w` no-wrap mode with whole-document horizontal pan, 3) `T` collapse tables to key-value records.
+- Wide-table ladder: 1) nowrap (default) preserves table width with whole-document horizontal pan, 2) `w` toggles cell-wrapped wrap mode, 3) `T` collapses tables to key-value records. `wrap` and `nowrap` are the only layout modes; `wide` is only a wrap-mode overflow status tag.
 - Table collapse and other transforms happen in MARKDOWN SPACE (parse with goldmark → rewrite source ranges → re-render), never by editing rendered ANSI.
 - Code blocks never silently reflow.
 - Links always OSC 8 with full URL preserved as target.

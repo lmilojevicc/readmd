@@ -15,14 +15,14 @@ func TestParseArgs(t *testing.T) {
 		want    cliOpts
 		errPart string
 	}{
-		{"default wrap", nil, cliOpts{wrap: true}, ""},
+		{"default nowrap", nil, cliOpts{}, ""},
 		{"explicit wrap", []string{"--wrap"}, cliOpts{wrap: true}, ""},
-		{"no-wrap", []string{"--no-wrap"}, cliOpts{wrap: false}, ""},
+		{"explicit nowrap", []string{"--no-wrap"}, cliOpts{}, ""},
 		{"last wins", []string{"--no-wrap", "--wrap"}, cliOpts{wrap: true}, ""},
 		{"last wins reversed", []string{"--wrap", "--no-wrap"}, cliOpts{wrap: false}, ""},
 		{"with file", []string{"--no-wrap", "doc.md"}, cliOpts{wrap: false, pos: []string{"doc.md"}}, ""},
 		{"combined flags", []string{"--style=dark", "--no-images", "--no-remote-images"},
-			cliOpts{wrap: true, style: "dark", imgs: pager.ImageConfig{NoImages: true, NoRemote: true}}, ""},
+			cliOpts{style: "dark", imgs: pager.ImageConfig{NoImages: true, NoRemote: true}}, ""},
 		{"unknown flag", []string{"--bogus"}, cliOpts{}, "unknown flag"},
 		{"missing style value", []string{"--style"}, cliOpts{}, "--style requires"},
 	} {

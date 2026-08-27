@@ -61,7 +61,6 @@ func New(source, title string) *Model {
 		vp:       viewport.New(),
 		source:   source,
 		title:    title,
-		wrapMode: true,
 		readFile: os.ReadFile,
 	}
 }
@@ -297,9 +296,10 @@ func (m *Model) canPanHorizontally() bool {
 }
 
 // readerFrame reports whether the viewport is pinned to the reader column in
-// nowrap framing: lines are stored unpadded at natural width and the centered
-// margin exists only as a display prefix (see View). Reader+wrapped instead
-// bakes the margin into the stored lines and keeps the full-width viewport.
+// nowrap framing: lines are stored unpadded at their unwrapped content width,
+// and the centered margin exists only as a display prefix (see View).
+// Reader+wrap instead bakes the margin into the stored lines and keeps the
+// full-width viewport.
 func (m *Model) readerFrame() (on bool, effW int) {
 	if m.reader && !m.wrapMode && !m.srcView {
 		w, _ := readerGeom(m.width, true)
@@ -353,7 +353,7 @@ func (m *Model) requestRender() tea.Cmd {
 	w, margin := readerGeom(m.renderW, m.reader)
 	gen, st := m.gen, m.style
 	wrap := m.wrapMode
-	natural := m.reader && !m.wrapMode
+	readerNowrap := m.reader && !m.wrapMode
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -366,7 +366,7 @@ func (m *Model) requestRender() tea.Cmd {
 		if err != nil {
 			return renderedMsg{err: err, width: w, gen: gen}
 		}
-		if !natural {
+		if !readerNowrap {
 			out = padMargin(out, margin)
 		}
 		stripped := splitStrip(out)
@@ -457,6 +457,9 @@ func (m *Model) statusBar() string {
 		view = "source"
 	}
 	info := view + " " + mode
+	if m.wrapMode && !m.reader && !m.srcView && m.widest > m.vp.Width() {
+		info += " wide"
+	}
 	if m.reader && !m.srcView {
 		info += " reader"
 	}

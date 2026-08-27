@@ -30,7 +30,7 @@ type cliOpts struct {
 }
 
 func parseArgs(args []string) (cliOpts, error) {
-	opts := cliOpts{wrap: true}
+	opts := cliOpts{}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {

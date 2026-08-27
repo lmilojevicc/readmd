@@ -147,7 +147,7 @@ func registerPaletteChroma() {
 // Reader mode: prose renders in a centered reading column capped at
 // readerWidth columns instead of the full terminal width. The column is
 // centered as a BLOCK: every rendered line (including code overflow and
-// no-wrap lines) gets one uniform left margin, so pan/scroll slicing and
+// nowrap lines) gets one uniform left margin, so pan/scroll slicing and
 // overlay compositing keep working on ordinary line prefixes.
 const readerWidth = 120
 

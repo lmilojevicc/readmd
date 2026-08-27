@@ -159,8 +159,9 @@ func TestReaderNowrapHighlightAlignment(t *testing.T) {
 }
 
 // Reader+nowrap coordinate system (System B): stored lines stay unpadded at
-// natural width; the viewport is pinned to the reader column and the centered
-// margin is a display-only prefix, so content pans within the fixed frame.
+// their unwrapped content width; the viewport is pinned to the reader column
+// and the centered margin is a display-only prefix, so content pans within the
+// fixed frame.
 func TestReaderNowrapViewportFrame(t *testing.T) {
 	const vw = 140
 	doc := "# Wide\n\n" + strings.Repeat("word ", 60) + "\n"
@@ -172,7 +173,7 @@ func TestReaderNowrapViewportFrame(t *testing.T) {
 		t.Fatalf("precondition: reader=%v wrap=%v", m.reader, m.wrapMode)
 	}
 	if lead := minLeading(m.stripped); lead != 2 { // glamour's own margin only
-		t.Fatalf("stored lines must be unpadded natural width: lead %d", lead)
+		t.Fatalf("stored lines must use unwrapped content width without padding: lead %d", lead)
 	}
 	if widest := widestLine(m.stripped); widest <= 120 {
 		t.Fatalf("precondition: content overflows the column, widest %d", widest)

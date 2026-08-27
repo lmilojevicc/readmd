@@ -237,14 +237,14 @@ func TestAlertDocLiteralMarkerSurvives(t *testing.T) {
 	}
 }
 
-func TestAlertNoWrapMode(t *testing.T) {
+func TestAlertNowrapMode(t *testing.T) {
 	src := "> [!WARNING]\n> careful text\n"
 	out, _, _, err := renderDoc(imgCtx{}, src, 80, false, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !styledTitlePresent(out) {
-		t.Errorf("no-wrap mode lost alert styling: %q", ansi.Strip(out))
+		t.Errorf("nowrap mode lost alert styling: %q", ansi.Strip(out))
 	}
 	if strings.Contains(ansi.Strip(out), "readmd-alert-") {
 		t.Errorf("sentinel leaked: %q", ansi.Strip(out))
