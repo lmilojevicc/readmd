@@ -23,5 +23,5 @@ line two
 - next item
 
 ```
-this line is deliberately longer than one hundred columns so wrapped-mode width assertions must exempt it as spliced code overflow aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+this line is deliberately longer than one hundred columns so natural-width rendering and horizontal panning stay exercised aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ```

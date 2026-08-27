@@ -43,44 +43,30 @@ func TestHeadingSourceLines(t *testing.T) {
 	}
 }
 
-func TestSourceToggleMatrix(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		startWrap bool
-	}{
-		{"from wrap", true},
-		{"from nowrap", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := newRenderedModel(t, srcDoc, 60, 10)
-			if !tc.startWrap {
-				settle(t, m, press(m, "w"))
-			}
-			if cmd := press(m, "s"); cmd != nil {
-				t.Fatal("entering source is synchronous")
-			}
-			if !m.srcView || m.wrapMode {
-				t.Fatalf("source forces nowrap: src=%v wrap=%v", m.srcView, m.wrapMode)
-			}
-			body := bodyOf(m)
-			if !strings.Contains(body, "# Alpha") || !strings.Contains(body, "## Beta") {
-				t.Fatalf("raw markdown markers missing:\n%s", ansi.Strip(body))
-			}
-			if ansi.Strip(body) != body {
-				t.Fatal("source view must be plain default-fg")
-			}
-			if v := m.View().Content; !strings.Contains(v, "source nowrap") {
-				t.Fatalf("status bar lacks source indicator:\n%s", v)
-			}
-			settle(t, m, press(m, "s"))
-			if m.srcView || m.wrapMode != tc.startWrap {
-				t.Fatalf("exit must restore view+wrap: src=%v wrap=%v want %v",
-					m.srcView, m.wrapMode, tc.startWrap)
-			}
-			if v := m.View().Content; !strings.Contains(v, "render") {
-				t.Fatalf("status bar lacks render indicator:\n%s", v)
-			}
-		})
+func TestSourceToggle(t *testing.T) {
+	m := newRenderedModel(t, srcDoc, 60, 10)
+	if cmd := press(m, "s"); cmd != nil {
+		t.Fatal("entering source is synchronous")
+	}
+	if !m.srcView {
+		t.Fatal("source view must be active")
+	}
+	body := bodyOf(m)
+	if !strings.Contains(body, "# Alpha") || !strings.Contains(body, "## Beta") {
+		t.Fatalf("raw markdown markers missing:\n%s", ansi.Strip(body))
+	}
+	if ansi.Strip(body) != body {
+		t.Fatal("source view must be plain default-fg")
+	}
+	if v := m.View().Content; !strings.Contains(v, "source") {
+		t.Fatalf("status bar lacks source indicator:\n%s", v)
+	}
+	settle(t, m, press(m, "s"))
+	if m.srcView {
+		t.Fatal("exit must restore rendered view")
+	}
+	if v := m.View().Content; !strings.Contains(v, "render") {
+		t.Fatalf("status bar lacks render indicator:\n%s", v)
 	}
 }
 
@@ -108,7 +94,7 @@ func TestSourceToggleAnchors(t *testing.T) {
 }
 
 func TestSourceAnchorFractionFallback(t *testing.T) {
-	doc := strings.Repeat("filler line\n", 60)
+	doc := strings.Repeat("filler line\n\n", 60)
 	m := newRenderedModel(t, doc, 60, 10)
 	m.vp.SetYOffset(50)
 	press(m, "s")
@@ -207,19 +193,16 @@ func TestSourceReloadAppliesInPlace(t *testing.T) {
 	if !m.srcView || !strings.Contains(bodyOf(m), "# Replaced") {
 		t.Fatal("reload in source mode must refresh raw content")
 	}
-	if m.wrapMode {
-		t.Fatal("reload must not restore wrap while in source")
-	}
 	if m.vp.YOffset() > y {
 		t.Fatal("reload should keep reading position")
 	}
 }
 
-func TestSourceGuardsModeKeys(t *testing.T) {
+func TestSourceGuardsTransformKey(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 10)
 	press(m, "s")
 	if cmd := press(m, "w"); cmd != nil {
-		t.Fatal("w frozen in source mode")
+		t.Fatal("w must remain unbound in source mode")
 	}
 	if cmd := press(m, "T"); cmd != nil {
 		t.Fatal("T frozen in source mode")

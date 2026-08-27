@@ -28,7 +28,7 @@ func settle(t *testing.T, m *Model, cmd tea.Cmd) {
 
 var longDoc = "short line\n" + strings.Repeat("x", 200) + "\nanother\n"
 
-func TestModelModes(t *testing.T) {
+func TestModelNavigation(t *testing.T) {
 	m := New(longDoc, "t")
 	settle(t, m, press(m, "\x00")) // no-op key
 	sz := tea.WindowSizeMsg{Width: 80, Height: 24}
@@ -38,10 +38,6 @@ func TestModelModes(t *testing.T) {
 		t.Fatal("resize should start render")
 	}
 	settle(t, m, cmd)
-
-	if m.wrapMode {
-		t.Fatal("nowrap mode is default")
-	}
 
 	before := m.vp.XOffset()
 	for range 3 {
@@ -71,32 +67,16 @@ func TestModelModes(t *testing.T) {
 	}
 	settle(t, m, cmd)
 
-	if cmd := press(m, "w"); cmd == nil || !m.wrapMode {
-		t.Fatalf("w toggles to wrap (cmd=%v wrapMode=%v)", cmd, m.wrapMode)
-	} else {
-		settle(t, m, cmd)
-	}
-	if cmd := press(m, "w"); cmd == nil || m.wrapMode {
-		t.Fatalf("w toggles back to nowrap (cmd=%v wrapMode=%v)", cmd, m.wrapMode)
-	} else {
-		settle(t, m, cmd)
+	before = m.vp.XOffset()
+	if cmd := press(m, "w"); cmd != nil || m.vp.XOffset() != before || m.collapsed {
+		t.Fatalf("w must be unbound (cmd=%v offset=%d collapsed=%v)", cmd, m.vp.XOffset(), m.collapsed)
 	}
 }
 
-func TestWrappedHorizontalPan(t *testing.T) {
+func TestHorizontalPan(t *testing.T) {
 	const longMermaid = "```mermaid\n" +
 		"flowchart LR\n" +
-		"A[Alpha] --> B[Bravo]\n" +
-		"B --> C[Charlie]\n" +
-		"C --> D[Delta]\n" +
-		"D --> E[Echo]\n" +
-		"E --> F[Foxtrot]\n" +
-		"F --> G[Golf]\n" +
-		"G --> H[Hotel]\n" +
-		"H --> I[India]\n" +
-		"I --> J[Juliet]\n" +
-		"J --> K[Kilo]\n" +
-		"K --> L[Lima]\n" +
+		"A[Alpha] --> B[Bravo] --> C[Charlie] --> D[Delta] --> E[Echo] --> F[Foxtrot]\n" +
 		"```\n"
 
 	for _, tc := range []struct {
@@ -109,32 +89,28 @@ func TestWrappedHorizontalPan(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := New(tc.doc, "diagram.md")
-			m.SetWrap(true)
 			nm, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
 			*m = *nm.(*Model)
 			settle(t, m, cmd)
-			if !m.wrapMode || m.reader {
-				t.Fatalf("precondition: wrap mode (wrap=%v reader=%v)", m.wrapMode, m.reader)
-			}
 
 			before := m.vp.View()
 			if tc.wantOverflow {
 				if m.widest <= m.vp.Width() {
 					t.Fatalf("precondition: rendered diagram width %d must exceed viewport %d", m.widest, m.vp.Width())
 				}
-				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render wrap wide") || strings.Contains(status, "→") {
-					t.Fatalf("status must report wrap-wide overflow at offset zero: %q", status)
+				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render") || strings.Contains(status, "→") {
+					t.Fatalf("status at offset zero: %q", status)
 				}
 				press(m, "l")
 				right := m.vp.XOffset()
 				if right == 0 {
-					t.Fatal("l must pan overflowing wrapped content")
+					t.Fatal("l must pan overflowing content")
 				}
 				if after := m.vp.View(); after == before {
 					t.Fatal("horizontal pan must change the visible diagram slice")
 				}
-				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render wrap wide →"+strconv.Itoa(right)) {
-					t.Fatalf("status must report wrapped horizontal offset %d: %q", right, status)
+				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render →"+strconv.Itoa(right)) {
+					t.Fatalf("status must report horizontal offset %d: %q", right, status)
 				}
 				press(m, "h")
 				if off := m.vp.XOffset(); off >= right {
@@ -143,25 +119,13 @@ func TestWrappedHorizontalPan(t *testing.T) {
 				press(m, "l")
 				press(m, "0")
 				if off := m.vp.XOffset(); off != 0 {
-					t.Fatalf("0 must reset wrapped horizontal pan, got %d", off)
-				}
-				press(m, "l")
-				settle(t, m, press(m, "r"))
-				if !m.reader || m.vp.XOffset() != 0 {
-					t.Fatalf("wrapped reader mode must retain its unpanned frame (reader=%v offset=%d)", m.reader, m.vp.XOffset())
-				}
-				press(m, "l")
-				if off := m.vp.XOffset(); off != 0 {
-					t.Fatalf("wrapped reader mode must ignore horizontal pan, got offset %d", off)
+					t.Fatalf("0 must reset horizontal pan, got %d", off)
 				}
 				return
 			}
 
 			if m.widest > m.vp.Width() {
 				t.Fatalf("precondition: short content width %d exceeds viewport %d", m.widest, m.vp.Width())
-			}
-			if status := ansi.Strip(m.statusBar()); strings.Contains(status, " wide") {
-				t.Fatalf("non-overflowing wrap status must not report wide: %q", status)
 			}
 			for _, key := range []string{"l", "h", "0"} {
 				press(m, key)
@@ -191,9 +155,6 @@ func TestCollapseClampsXOffset(t *testing.T) {
 			nm, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 			*m = *nm.(*Model)
 			settle(t, m, cmd)
-			if m.wrapMode {
-				t.Fatal("precondition: default mode must be nowrap")
-			}
 			for range tc.pans {
 				press(m, "l")
 			}
@@ -218,14 +179,14 @@ func TestRenderedMsgStale(t *testing.T) {
 		t.Fatal("first resize must render")
 	}
 	stale := cmd().(renderedMsg)
-	if stale.width != 80 {
-		t.Fatalf("stale rendered at %d, want 80", stale.width)
-	}
 
 	nm, coalesced := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
 	*m = *nm.(*Model)
 	if coalesced != nil {
 		t.Fatal("resize while rendering must coalesce")
+	}
+	if m.width != 40 || stale.gen >= m.gen {
+		t.Fatalf("resize must advance generation at current width: width=%d stale gen=%d current gen=%d", m.width, stale.gen, m.gen)
 	}
 
 	nm, retry := m.Update(stale)
@@ -234,8 +195,8 @@ func TestRenderedMsgStale(t *testing.T) {
 		t.Fatal("stale result must trigger re-render at current width")
 	}
 	fresh := retry().(renderedMsg)
-	if fresh.width != 40 || fresh.gen != m.gen {
-		t.Fatalf("retry rendered at %d gen %d, want width 40 gen %d", fresh.width, fresh.gen, m.gen)
+	if fresh.gen != m.gen || fresh.gen <= stale.gen {
+		t.Fatalf("retry generation %d, want current gen %d after stale gen %d", fresh.gen, m.gen, stale.gen)
 	}
 }
 
@@ -246,27 +207,59 @@ func TestViewStatusBar(t *testing.T) {
 	settle(t, m, cmd)
 
 	view := func() string { return m.View().Content }
-	if v := view(); !strings.Contains(v, "render nowrap") || strings.Contains(v, " wide") || strings.Contains(v, "→") {
-		t.Fatalf("default nowrap status must lack wide and offset tags:\n%s", v)
+	if v := view(); !strings.Contains(v, "render") || strings.Contains(v, "→") {
+		t.Fatalf("render status must lack an offset at column zero:\n%s", v)
 	}
 	for range 2 {
 		press(m, "l")
 	}
 	step := max(8, m.width/10)
-	if v := view(); !strings.Contains(v, "render nowrap →"+strconv.Itoa(step*2)) || strings.Contains(v, " wide") {
-		t.Fatalf("nowrap status must show offset without a wide tag:\n%s", v)
+	if v := view(); !strings.Contains(v, "render →"+strconv.Itoa(step*2)) {
+		t.Fatalf("render status must show horizontal offset:\n%s", v)
 	}
+}
 
-	settle(t, m, press(m, "w"))
-	if v := view(); !strings.Contains(v, "render wrap") || strings.Contains(v, "nowrap") {
-		t.Fatalf("w must switch status to wrap:\n%s", v)
+func TestStatusBarStates(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*testing.T, *Model)
+		want  string
+	}{
+		{"render", func(*testing.T, *Model) {}, "render"},
+		{"render offset", func(_ *testing.T, m *Model) { press(m, "l") }, "render →8"},
+		{"reader", func(t *testing.T, m *Model) { settle(t, m, press(m, "r")) }, "render reader"},
+		{"reader offset", func(t *testing.T, m *Model) {
+			settle(t, m, press(m, "r"))
+			press(m, "l")
+		}, "render reader →8"},
+		{"source", func(_ *testing.T, m *Model) { press(m, "s") }, "source"},
+		{"source offset", func(_ *testing.T, m *Model) {
+			press(m, "s")
+			press(m, "l")
+		}, "source →8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(longDoc, "doc.md")
+			nm, cmd := m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+			*m = *nm.(*Model)
+			settle(t, m, cmd)
+			tc.setup(t, m)
+			bar := ansi.Strip(m.statusBar())
+			if !strings.Contains(bar, tc.want) {
+				t.Fatalf("status %q lacks %q", bar, tc.want)
+			}
+			for _, obsolete := range []string{"wrap", "nowrap", "wide"} {
+				if strings.Contains(bar, obsolete) {
+					t.Fatalf("status contains obsolete layout label %q: %q", obsolete, bar)
+				}
+			}
+		})
 	}
 }
 
 func TestStatusBarLayout(t *testing.T) {
 	bar := func(w int) string {
 		m := New(longDoc, "doc.md")
-		m.SetWrap(true)
 		nm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: 10})
 		*m = *nm.(*Model)
 		settle(t, m, cmd)
@@ -280,12 +273,12 @@ func TestStatusBarLayout(t *testing.T) {
 		omit []string
 	}{
 		{"full bar", 44, []string{brandChip, "doc.md", "%", "help"}, nil},
-		{"filename truncates first", 30, []string{brandChip, "%", "…"}, []string{"help"}},
+		{"filename drops first", 30, []string{brandChip, "render", "%", "help"}, []string{"doc.md", "…"}},
 		{"sub-2-char name dropped", 28, []string{brandChip, "%"}, []string{"help", "…"}},
 		{"hint dropped before percent", 26, []string{brandChip, "%"}, []string{"help", "doc.md"}},
-		{"percent dropped before chip", 22, []string{brandChip, "wrap"}, []string{"%", "help"}},
-		{"vw 12 drops the name segment", 12, []string{brandChip}, []string{"%", "help", "wrap", "…"}},
-		{"bare chip survives", 9, []string{brandChip}, []string{"%", "help", "wrap"}},
+		{"percent dropped before chip", 19, []string{brandChip, "render"}, []string{"%", "help"}},
+		{"vw 12 drops the name segment", 12, []string{brandChip}, []string{"%", "help", "render", "…"}},
+		{"bare chip survives", 9, []string{brandChip}, []string{"%", "help", "render"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := bar(tc.w)

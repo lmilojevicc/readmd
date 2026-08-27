@@ -34,7 +34,6 @@ var helpEntries = []helpEntry{
 	{"h", "pan left when wide", "Navigation"},
 	{"l", "pan right when wide", "Navigation"},
 	{"0", "reset horizontal pan", "Navigation"},
-	{"w", "toggle wrap / nowrap", "Modes"},
 	{"s", "rendered/source view", "Modes"},
 	{"T", "collapse tables", "Modes"},
 	{"r", "toggle reader column", "Modes"},

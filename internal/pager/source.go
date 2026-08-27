@@ -9,19 +9,15 @@ import (
 )
 
 // toggleSource switches rendered/source views. Both directions anchor the
-// reading position on the nearest heading above the top line; source mode
-// forces nowrap and exit restores the wrap setting held on entry.
+// reading position on the nearest heading above the top line.
 func (m *Model) toggleSource() tea.Cmd {
 	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 	if m.srcView {
 		m.srcView = false
-		m.wrapMode = m.wrapBeforeSrc
 		m.syncVPWidth()
 		return m.requestRender()
 	}
-	m.wrapBeforeSrc = m.wrapMode
 	m.srcView = true
-	m.wrapMode = false
 	m.syncVPWidth()
 	m.applySource()
 	return nil
@@ -65,8 +61,8 @@ func (m *Model) clampXWidest() {
 	}
 }
 
-// syncVPWidth pins the viewport to the reader column while the nowrap reader
-// frame is active and restores full terminal width otherwise.
+// syncVPWidth pins the viewport to the reader column while reader mode is
+// active and restores full terminal width otherwise.
 func (m *Model) syncVPWidth() {
 	if on, effW := m.readerFrame(); on {
 		m.vp.SetWidth(effW)

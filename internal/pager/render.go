@@ -1,8 +1,6 @@
 package pager
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,10 +12,7 @@ import (
 	"charm.land/glamour/v2/styles"
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 )
 
 const paletteStyleName = "palette"
@@ -144,15 +139,12 @@ func registerPaletteChroma() {
 	})
 }
 
-// Reader mode: prose renders in a centered reading column capped at
-// readerWidth columns instead of the full terminal width. The column is
-// centered as a BLOCK: every rendered line (including code overflow and
-// nowrap lines) gets one uniform left margin, so pan/scroll slicing and
-// overlay compositing keep working on ordinary line prefixes.
+// Reader mode pins a centered viewport capped at readerWidth columns. Rendered
+// lines retain their natural width and pan within that viewport.
 const readerWidth = 120
 
-// readerGeom returns the render width to use and the uniform left margin to
-// pad onto every output line. Off = full width, no margin.
+// readerGeom returns the viewport width and display-only left margin.
+// Off = full width, no margin.
 func readerGeom(vw int, on bool) (w, margin int) {
 	if !on {
 		return vw, 0
@@ -173,20 +165,23 @@ func padMargin(out string, margin int) string {
 	return strings.Join(lines, "\n")
 }
 
-func Render(source string, width int, wrap bool) (string, error) {
-	out, _, _, err := renderDoc(imgCtx{}, source, width, wrap, styles.NoTTYStyle)
+func Render(source string, width int) (string, error) {
+	out, _, _, err := renderDoc(imgCtx{}, source, width, styles.NoTTYStyle)
 	return out, err
 }
 
-func renderDoc(o imgCtx, source string, width int, wrap bool, style string) (string, []string, docGfx, error) {
-	out, pending, g, err := renderStyled(o, source, width, wrap, style, true)
+func renderDoc(o imgCtx, source string, width int, style string) (string, []string, docGfx, error) {
+	if o.Width <= 0 {
+		o.Width = width
+	}
+	out, pending, g, err := renderStyled(o, source, style, true)
 	if errors.Is(err, errAlertSplice) {
-		return renderStyled(o, source, width, wrap, style, false)
+		return renderStyled(o, source, style, false)
 	}
 	return out, pending, g, err
 }
 
-func renderStyled(o imgCtx, source string, width int, wrap bool, style string, alertsOn bool) (string, []string, docGfx, error) {
+func renderStyled(o imgCtx, source string, style string, alertsOn bool) (string, []string, docGfx, error) {
 	src := sanitize(source)
 	src = expandMermaid(src)
 	src = substituteMath(src)
@@ -212,35 +207,18 @@ func renderStyled(o imgCtx, source string, width int, wrap bool, style string, a
 		}
 		return rendered, g, nil
 	}
-	if !wrap {
-		out, err := renderGlamour(src, 0, style)
-		if err != nil {
-			return "", nil, docGfx{}, err
-		}
-		out, g, err := post(out)
-		return trimTrailing(out), pending, g, err
-	}
-	marked, blocks := insertCodeSentinels(src)
-	out, err := renderGlamour(marked, width, style)
+	out, err := renderGlamour(src, style)
 	if err != nil {
 		return "", nil, docGfx{}, err
-	}
-	if _, ok := findCodeSpans(out, blocks); !ok {
-		out, err = renderGlamour(src, width, style)
-		if err != nil {
-			return "", nil, docGfx{}, err
-		}
-	} else {
-		out = spliceCodeBlocks(out, blocks, style)
 	}
 	out, g, err := post(out)
 	return trimTrailing(out), pending, g, err
 }
 
-func renderGlamour(src string, wordWrap int, style string) (string, error) {
+func renderGlamour(src string, style string) (string, error) {
 	opts := []glamour.TermRendererOption{
-		glamour.WithWordWrap(wordWrap),
-		glamour.WithTableWrap(wordWrap > 0),
+		glamour.WithWordWrap(0),
+		glamour.WithTableWrap(false),
 	}
 	if style == paletteStyleName {
 		registerPaletteChroma()
@@ -268,6 +246,13 @@ func sanitize(src string) string {
 		case '\n', '\r', '\t', kitty.Placeholder:
 			return r
 		}
+		// Preserve format code points that participate in visible grapheme clusters.
+		if r == '\u200c' || r == '\u200d' ||
+			(r >= '\ufe00' && r <= '\ufe0f') ||
+			(r >= '\U000e0020' && r <= '\U000e007f') ||
+			(r >= '\U000e0100' && r <= '\U000e01ef') {
+			return r
+		}
 		if unicode.IsControl(r) || !unicode.IsPrint(r) {
 			return '\ufffd'
 		}
@@ -281,72 +266,6 @@ func trimTrailing(out string) string {
 		lines[i] = strings.TrimRight(lines[i], " ")
 	}
 	return strings.Join(lines, "\n")
-}
-
-type codeBlock struct {
-	content  string
-	lang     string
-	startTok string
-	endTok   string
-}
-
-const sentinelFmt = "readmd-code-%s%d%s"
-
-func insertCodeSentinels(src string) (string, []codeBlock) {
-	bsrc := []byte(src)
-	doc := md.Parser().Parse(text.NewReader(bsrc))
-	var nonce [6]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return src, nil
-	}
-	nonceStr := hex.EncodeToString(nonce[:])
-	var edits []edit
-	var blocks []codeBlock
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-		fcb, ok := n.(*ast.FencedCodeBlock)
-		if !ok || fcb.Lines().Len() == 0 {
-			return ast.WalkContinue, nil
-		}
-		i := len(blocks)
-		first := fcb.Lines().At(0).Start
-		lastStop := fcb.Lines().At(fcb.Lines().Len() - 1).Stop
-		openerStart := lineStart(src, lineStart(src, first))
-		indent := leadingSpace(src[openerStart:first])
-		startTok := fmt.Sprintf(sentinelFmt, nonceStr, i, "s")
-		endTok := fmt.Sprintf(sentinelFmt, nonceStr, i, "e")
-		edits = append(edits, edit{first, first, indent + startTok + "\n"})
-		pos := lastStop
-		endIns := indent + endTok + "\n"
-		if end := lineEnd(src, lastStop); end < len(src) {
-			pos = end + 1
-			endIns += sepAfter(src, pos)
-		} else {
-			endIns = "\n" + endIns
-		}
-		edits = append(edits, edit{pos, pos, endIns})
-		blocks = append(blocks, codeBlock{
-			content:  string(fcb.Lines().Value(bsrc)),
-			lang:     string(fcb.Language(bsrc)),
-			startTok: startTok,
-			endTok:   endTok,
-		})
-		return ast.WalkContinue, nil
-	})
-	if len(edits) == 0 {
-		return src, nil
-	}
-	return applyEdits(src, edits), blocks
-}
-
-func leadingSpace(s string) string {
-	i := strings.IndexFunc(s, func(r rune) bool { return r != ' ' && r != '\t' })
-	if i < 0 {
-		return s
-	}
-	return s[:i]
 }
 
 // sepBefore returns "\n" when the line above pos is not blank, so prepending
@@ -371,99 +290,4 @@ func sepAfter(src string, pos int) string {
 		return "\n"
 	}
 	return ""
-}
-
-type codeSpan struct{ from, to int }
-
-// findCodeSpans locates each block's sentinel pair in rendered output,
-// failing when a token is missing, duplicated, or out of order.
-func findCodeSpans(out string, blocks []codeBlock) ([]codeSpan, bool) {
-	lines := strings.Split(out, "\n")
-	stripped := make([]string, len(lines))
-	for i, l := range lines {
-		stripped[i] = ansi.Strip(l)
-	}
-	spans := make([]codeSpan, len(blocks))
-	for i := range blocks {
-		from, to := -1, -1
-		for j, s := range stripped {
-			switch {
-			case strings.Contains(s, blocks[i].startTok):
-				if from >= 0 {
-					return nil, false
-				}
-				from = j
-			case strings.Contains(s, blocks[i].endTok):
-				if to >= 0 {
-					return nil, false
-				}
-				to = j
-			}
-		}
-		if from < 0 || to < from {
-			return nil, false
-		}
-		spans[i] = codeSpan{from, to}
-	}
-	return spans, true
-}
-
-func spliceCodeBlocks(out string, blocks []codeBlock, style string) string {
-	if len(blocks) == 0 {
-		return out
-	}
-	spans, ok := findCodeSpans(out, blocks)
-	if !ok {
-		return stripMarkers(out, blocks)
-	}
-	lines := strings.Split(out, "\n")
-	var outLines []string
-	prev := 0
-	for i, sp := range spans {
-		content := blocks[i].content
-		if !strings.HasSuffix(content, "\n") {
-			content += "\n"
-		}
-		rendered, err := renderGlamour("```"+blocks[i].lang+"\n"+content+"```\n", 0, style)
-		if err != nil {
-			rendered = strings.Join(lines[sp.from+1:sp.to], "\n")
-		} else {
-			rendered = trimEdges(rendered)
-		}
-		outLines = append(outLines, lines[prev:sp.from]...)
-		outLines = append(outLines, strings.Split(rendered, "\n")...)
-		prev = sp.to + 1
-	}
-	outLines = append(outLines, lines[prev:]...)
-	return strings.Join(outLines, "\n")
-}
-
-func stripMarkers(out string, blocks []codeBlock) string {
-	var kept []string
-	for _, l := range strings.Split(out, "\n") {
-		s := ansi.Strip(l)
-		drop := false
-		for _, b := range blocks {
-			if strings.Contains(s, b.startTok) || strings.Contains(s, b.endTok) {
-				drop = true
-				break
-			}
-		}
-		if !drop {
-			kept = append(kept, l)
-		}
-	}
-	return strings.Join(kept, "\n")
-}
-
-func trimEdges(out string) string {
-	lines := strings.Split(out, "\n")
-	start, end := 0, len(lines)
-	for start < end && strings.TrimSpace(lines[start]) == "" {
-		start++
-	}
-	for end > start && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-	}
-	return strings.Join(lines[start:end], "\n")
 }

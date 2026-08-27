@@ -516,7 +516,7 @@ func TestRenderDocEndToEnd(t *testing.T) {
 
 	o := e.ctx()
 	o.Width = 80
-	out, pending, g, err := renderDoc(o, src, 80, true, "")
+	out, pending, g, err := renderDoc(o, src, 80, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +591,7 @@ func TestRenderDocAltFallbacks(t *testing.T) {
 			imgCtx{Dir: e.dir, Width: 80, store: e.store}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _, _, err := renderDoc(tc.ctx, tc.src, 80, true, "")
+			out, _, _, err := renderDoc(tc.ctx, tc.src, 80, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -611,7 +611,7 @@ func TestGfxControlsAppliedOnce(t *testing.T) {
 	src := "![a](big.png)\n"
 	o := e.ctx()
 
-	_, _, g1, err := renderDoc(o, src, 80, true, "")
+	_, _, g1, err := renderDoc(o, src, 80, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestGfxControlsAppliedOnce(t *testing.T) {
 	}
 	o.store.applyGfx(g1.tx, g1.places)
 
-	_, _, g2, err := renderDoc(o, src, 80, true, "")
+	_, _, g2, err := renderDoc(o, src, 80, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestGfxControlsAppliedOnce(t *testing.T) {
 	}
 
 	o.Width = 40
-	_, _, g3, err := renderDoc(o, src, 40, true, "")
+	_, _, g3, err := renderDoc(o, src, 40, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,11 +645,11 @@ func TestRenderImagesOffIsUnchanged(t *testing.T) {
 	e := newImgEnv(t)
 	e.writeImg(t, "cat.png", redPNG(t, 8, 8))
 	src := "# T\n\n![cat](cat.png)\n\n| A | B |\n| - | - |\n| x | y |\n"
-	viaRender, err := Render(src, 60, true)
+	viaRender, err := Render(src, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
-	viaDoc, _, _, err := renderDoc(imgCtx{}, src, 60, true, "")
+	viaDoc, _, _, err := renderDoc(imgCtx{}, src, 60, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,7 +665,7 @@ func TestDocLiteralImageMarkerDoesNotBreakSplice(t *testing.T) {
 	e := newImgEnv(t)
 	e.writeImg(t, "cat.png", redPNG(t, 8, 8))
 	src := "readmd-img-000000 prose mentioning a marker\n\n![a](cat.png)\n"
-	out, _, _, err := renderDoc(e.ctx(), src, 60, true, "")
+	out, _, _, err := renderDoc(e.ctx(), src, 60, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -867,7 +867,7 @@ func TestCacheWarnSurfacesOnce(t *testing.T) {
 	e.writeImg(t, "cat.png", redPNG(t, 8, 8))
 	m := New("# T\n\n![cat](cat.png)\n\nx\n", "doc.md")
 	m.SetImages(ImageConfig{})
-	m.renderW = 80
+	m.width = 80
 	m.imgCfg.DocDir = e.dir
 	m.store.recordCacheWarn("image cache: disk full")
 

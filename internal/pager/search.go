@@ -204,6 +204,16 @@ func (m *Model) jumpMatch(dir int, inclusive bool) {
 	m.search.pos = i
 	m.vp.SetYOffset(ms[i].line)
 	m.applySearchView()
+	m.revealMatch(ms[i])
+}
+
+func (m *Model) revealMatch(mt match) {
+	x, w := m.vp.XOffset(), m.vp.Width()
+	if w <= 0 || (mt.start >= x && mt.end <= x+w) {
+		return
+	}
+	m.vp.SetXOffset(mt.start)
+	m.clampXWidest()
 }
 
 func (m *Model) searchPrompt() string {

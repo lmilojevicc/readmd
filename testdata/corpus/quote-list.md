@@ -1,6 +1,6 @@
 # Quote Structures
 
-> a quoted paragraph with enough words to need wrapping at narrow widths
+> a quoted paragraph with enough words to exercise natural-width panning at narrow viewports
 
 > - quoted list
 >   - nested in quote

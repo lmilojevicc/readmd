@@ -59,7 +59,7 @@ func TestMapHeadings(t *testing.T) {
 			want:  []int{1, 5},
 		},
 		{
-			name:  "wrapped heading accumulates run",
+			name:  "multiline heading accumulates run",
 			lines: []string{"", " ## a very", " long heading", "", "x"},
 			texts: []string{"A Very Long Heading"},
 			want:  []int{1},
@@ -125,10 +125,10 @@ func TestMapHeadings(t *testing.T) {
 // Integration: through the real renderer, each heading's recorded line must be
 // the start of a region whose stripped text contains the normalized heading.
 func TestHeadingMappingPipeline(t *testing.T) {
-	src := "# Main Title\n\nIntro prose.\n\n## Setup\n\nStep text.\n\n## Setup\n\nAgain.\n\n### 中文 🎉 深入\n\ndetails\n\n## A fairly long heading that will wrap around at narrow widths indeed yes\n\ntail\n"
+	src := "# Main Title\n\nIntro prose.\n\n## Setup\n\nStep text.\n\n## Setup\n\nAgain.\n\n### 中文 🎉 深入\n\ndetails\n\n## A fairly long heading that remains intact at narrow widths indeed yes\n\ntail\n"
 	strippedDoc := map[int][]string{}
 	for _, w := range []int{20, 40, 80} {
-		out, err := Render(src, w, true)
+		out, err := Render(src, w)
 		if err != nil {
 			t.Fatalf("w%d: %v", w, err)
 		}
@@ -155,7 +155,7 @@ func TestHeadingMappingPipeline(t *testing.T) {
 	dups := 0
 	last := map[string]int{}
 	for _, h := range func() []heading {
-		out, _ := Render(src, 40, true)
+		out, _ := Render(src, 40)
 		lines := splitStrip(out)
 		hs := extractHeadings(src)
 		mapHeadings(hs, lines)
@@ -171,14 +171,13 @@ func TestHeadingMappingPipeline(t *testing.T) {
 	}
 }
 
-var tocDoc = "# Alpha\n\n" + strings.Repeat("para line\n", 15) +
-	"\n## Beta\n\n" + strings.Repeat("more text\n", 15) +
-	"\n## Gamma\n\n" + strings.Repeat("final text\n", 15)
+var tocDoc = "# Alpha\n\n" + strings.Repeat("para line\n\n", 15) +
+	"## Beta\n\n" + strings.Repeat("more text\n\n", 15) +
+	"## Gamma\n\n" + strings.Repeat("final text\n\n", 15)
 
 func newRenderedModel(t *testing.T, src string, w, h int) *Model {
 	t.Helper()
 	m := New(src, "doc.md")
-	m.SetWrap(true)
 	nm, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	*m = *nm.(*Model)
 	settle(t, m, cmd)
@@ -259,38 +258,12 @@ func TestTOCSwallowsUnboundKeys(t *testing.T) {
 			t.Fatalf("%q moved the viewport", key)
 		}
 	}
-	if !m.wrapMode || m.collapsed || m.search.active || m.search.query != "" {
+	if m.collapsed || m.search.active || m.search.query != "" {
 		t.Error("mode/search state changed under open TOC")
 	}
 	press(m, "k")
 	if m.tocSel != 0 {
 		t.Errorf("k at top must clamp selection: got %d, want 0", m.tocSel)
-	}
-}
-
-func TestTOCEnterJumpModes(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		wrap bool
-	}{
-		{"nowrap enter jump", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := newRenderedModel(t, tocDoc, 60, 10)
-			settle(t, m, press(m, "w"))
-			if m.wrapMode != tc.wrap {
-				t.Fatalf("precondition: wrapMode=%v", m.wrapMode)
-			}
-			press(m, "o")
-			press(m, "j")
-			pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-			if m.tocOpen {
-				t.Fatal("enter closes overlay")
-			}
-			if want := m.heads[1].line; m.vp.YOffset() != want {
-				t.Fatalf("enter jumped to %d, want %d", m.vp.YOffset(), want)
-			}
-		})
 	}
 }
 

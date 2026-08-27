@@ -182,7 +182,7 @@ func TestDiagramWidthSanity(t *testing.T) {
 
 func TestRenderIntegratesDiagramAndMath(t *testing.T) {
 	doc := "# T\n\n$E=mc^2$ prose\n\n```mermaid\nflowchart TD\nA --> B\n```\n"
-	out, err := Render(doc, 60, true)
+	out, err := Render(doc, 60)
 	if err != nil {
 		t.Fatal(err)
 	}

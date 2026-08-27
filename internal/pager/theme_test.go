@@ -47,7 +47,7 @@ var paletteBgSGRRe = regexp.MustCompile(`\x1b\[(4[0-7]|10[0-7])m`)
 const themeSample = "# Heading\n\n| A | B |\n| - | - |\n| x | y |\n\n```go\nx := 1\n```\n\n> [!CAUTION]\n> danger ahead\n"
 
 func TestPaletteTerminalInvariant(t *testing.T) {
-	out, _, _, err := renderDoc(imgCtx{}, themeSample, 40, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, themeSample, 40, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestPaletteTerminalInvariant(t *testing.T) {
 }
 
 func TestThemeColors(t *testing.T) {
-	paletteOut, _, _, err := renderDoc(imgCtx{}, themeSample, 40, true, paletteStyleName)
+	paletteOut, _, _, err := renderDoc(imgCtx{}, themeSample, 40, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestThemeColors(t *testing.T) {
 		{styles.NoTTYStyle, false},
 	} {
 		t.Run(tc.style, func(t *testing.T) {
-			out, _, _, err := renderDoc(imgCtx{}, themeSample, 40, true, tc.style)
+			out, _, _, err := renderDoc(imgCtx{}, themeSample, 40, tc.style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,7 +157,7 @@ func TestSetStyle(t *testing.T) {
 
 func TestModelStyleFlowsToRender(t *testing.T) {
 	m := New(themeSample, "t")
-	m.renderW = 80
+	m.width = 80
 	if err := m.SetStyle("auto"); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestStatusBarChips(t *testing.T) {
 	}
 	for _, want := range []string{
 		dimStyle.Render("doc.md"),
-		dimStyle.Render("render nowrap " + fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)),
+		dimStyle.Render("render " + fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)),
 	} {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("filename and view info must use the dim palette style; missing %q in:\n%q", want, bar)

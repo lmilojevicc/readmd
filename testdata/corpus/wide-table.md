@@ -1,6 +1,6 @@
 # Wide Table
 
-Ten columns with long cells; wraps per cell at narrow widths.
+Ten columns with long cells; natural width requires panning at narrow viewports.
 
 | ID | Product | Category | Supplier | Price | Stock | Rating | Weight | Color | Notes |
 | -- | ------- | -------- | -------- | ----- | ----- | ------ | ------ | ----- | ----- |

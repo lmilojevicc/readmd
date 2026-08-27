@@ -1,7 +1,7 @@
 package pager
 
 import (
-	"strconv"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,7 +14,7 @@ func TestUnclosedFence(t *testing.T) {
 		"```go\nx := 1\n",
 		"prose\n\n```\n\n```",
 	} {
-		out, err := Render(src, 40, true)
+		out, err := Render(src, 40)
 		if err != nil {
 			t.Errorf("%q: %v", src, err)
 			continue
@@ -25,44 +25,25 @@ func TestUnclosedFence(t *testing.T) {
 	}
 }
 
-// A fence immediately followed by prose used to merge the code end sentinel
-// into the prose paragraph; below ~31 columns glamour word-wrapped the token
-// and fragments leaked. The blank-line separator plus the splice-anomaly
-// re-render must keep every width clean.
+// A fence immediately followed by prose must preserve both blocks.
 func TestFenceProseAdjacencyNoLeak(t *testing.T) {
 	src := "```go\nx := 1\n```\nprose text here\n"
-	for _, w := range []int{20, 25, 30} {
-		t.Run(strconv.Itoa(w), func(t *testing.T) {
-			out, err := Render(src, w, true)
-			if err != nil {
-				t.Fatal(err)
-			}
-			s := ansi.Strip(out)
-			if strings.Contains(s, "readmd-code-") {
-				t.Errorf("w%d: sentinel fragment leaked: %q", w, s)
-			}
-			if !strings.Contains(s, "x := 1") || !strings.Contains(s, "prose text here") {
-				t.Errorf("w%d: content lost: %q", w, s)
-			}
-		})
+	out, err := Render(src, 20)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestSentinelNonceDiffersPerRender(t *testing.T) {
-	src := "```go\nx\n```\n"
-	a, _ := insertCodeSentinels(src)
-	b, _ := insertCodeSentinels(src)
-	if a == b {
-		t.Fatal("sentinels must differ between renders")
+	s := ansi.Strip(out)
+	if strings.Contains(s, "readmd-code-") {
+		t.Errorf("sentinel fragment leaked: %q", s)
 	}
-	if !strings.HasPrefix(a, "```go\nreadmd-code-") {
-		t.Fatalf("unexpected sentinel placement: %q", a)
+	if !strings.Contains(s, "x := 1") || !strings.Contains(s, "prose text here") {
+		t.Errorf("content lost: %q", s)
 	}
 }
 
 func TestDocLiteralMarkerDoesNotBreakSplice(t *testing.T) {
 	src := "readmd-code-0-start prose mentioning a marker\n\n```go\nx\n```\n"
-	out, err := Render(src, 40, true)
+	out, err := Render(src, 40)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,47 +52,53 @@ func TestDocLiteralMarkerDoesNotBreakSplice(t *testing.T) {
 	}
 }
 
-func TestSpliceFallbackStripsMarkers(t *testing.T) {
-	blocks := []codeBlock{{
-		content:  "hidden",
-		startTok: "readmd-code-tok-0-start",
-		endTok:   "readmd-code-tok-0-end",
-	}}
-	for _, tc := range []struct {
-		name string
-		out  string
-		want string
-	}{
-		{
-			name: "duplicate start token",
-			out:  "a\nreadmd-code-tok-0-start\nb\nreadmd-code-tok-0-start\nc\nreadmd-code-tok-0-end\nd\n",
-			want: "a\nb\nc\nd\n",
-		},
-		{
-			name: "missing end token",
-			out:  "a\nreadmd-code-tok-0-start\nb\n",
-			want: "a\nb\n",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := spliceCodeBlocks(tc.out, blocks, ""); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
+func TestWideTableNaturalGeometry(t *testing.T) {
+	var header, delimiter, row strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&header, "| column-%02d ", i)
+		delimiter.WriteString("| --- ")
+		fmt.Fprintf(&row, "| endpoint-%02d.internal:84%02d ", i, i)
+	}
+	header.WriteString("|\n")
+	delimiter.WriteString("|\n")
+	row.WriteString("|\n")
+	out, err := Render(header.String()+delimiter.String()+row.String(), 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := ansi.Strip(out)
+	for _, want := range []string{"column-00", "column-19", "endpoint-00.internal:8400", "endpoint-19.internal:8419"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("wide table lost token %q", want)
+		}
+	}
+	if widestLine(strings.Split(plain, "\n")) <= 40 {
+		t.Fatal("wide table must retain geometry beyond the viewport")
 	}
 }
 
-func TestWrappedWidthBound(t *testing.T) {
-	src := "# T\n\nlong prose line that must wrap well below the limit yes\n\n| A | B |\n| - | - |\n| x | y |\n"
+func TestNaturalWidthIndependentOfViewport(t *testing.T) {
+	src := "# T\n\nlong prose line that must remain intact across every viewport width\n\n" +
+		"| Service identifier | Internal endpoint |\n| - | - |\n| auth-api | auth.internal:8443 |\n"
+	var first string
 	for _, width := range []int{20, 40, 79} {
-		out, err := Render(src, width, true)
+		out, err := Render(src, width)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for i, l := range strings.Split(out, "\n") {
-			if w := ansi.StringWidth(l); w > width {
-				t.Fatalf("w%d line %d = %d cols: %q", width, i, w, ansi.Strip(l))
+		plain := ansi.Strip(out)
+		for _, want := range []string{"long prose line that must remain intact", "Service identifier", "auth.internal:8443"} {
+			if !strings.Contains(plain, want) {
+				t.Fatalf("w%d lost token %q: %q", width, want, plain)
 			}
+		}
+		if first == "" {
+			first = plain
+		} else if plain != first {
+			t.Fatalf("natural-width output changed at width %d", width)
+		}
+		if width == 20 && widestLine(strings.Split(plain, "\n")) <= width {
+			t.Fatalf("w%d precondition: output did not overflow", width)
 		}
 	}
 }

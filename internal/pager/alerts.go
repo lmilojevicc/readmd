@@ -66,7 +66,7 @@ func insertAlertSentinels(src string) (string, []alert) {
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	// 2 hex chars keep the 17-col sentinel inside narrow viewports; the
-	// minimum width that still styles alerts (21) is pinned by TestAlertMinWidth.
+	// width-20 styling contract is pinned by TestAlertMinWidth.
 	var nonce [1]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return src, nil

@@ -190,16 +190,16 @@ func TestOverlayRefusesTinyPanels(t *testing.T) {
 func TestHelpClosesWithoutSideEffect(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 12)
 	press(m, "?")
-	press(m, "w")
-	if m.helpOpen || !m.wrapMode {
-		t.Fatal("w under help closes it and must not toggle wrap")
+	press(m, "x")
+	if m.helpOpen {
+		t.Fatal("an unbound key under help must only close it")
 	}
 	press(m, "?")
 	pressKey(m, keyMsg("/"))
 	if !m.helpOpen || !m.helpPrompt || m.search.active {
 		t.Fatal("/ under help opens the filter prompt, never search")
 	}
-	typeQuery(m, "wrap")
+	typeQuery(m, "search")
 	if m.search.active || m.search.query != "" {
 		t.Fatal("typing into the modal filter must not touch search state")
 	}
@@ -252,7 +252,7 @@ func TestHelpFilter(t *testing.T) {
 	if !m.helpPrompt {
 		t.Fatal("/ opens the filter prompt inside the modal")
 	}
-	typeQuery(m, "wr")
+	typeQuery(m, "rea")
 	filtered := len(formatHelp(m.helpFilter))
 	if filtered == 0 || filtered >= total {
 		t.Fatalf("filter must narrow the listing: %d of %d", filtered, total)
@@ -260,7 +260,7 @@ func TestHelpFilter(t *testing.T) {
 	if v := m.View().Content; strings.Contains(v, fmt.Sprintf(" %d of %d ", total, total)) {
 		t.Fatal("footer must reflect the filtered set while filtering")
 	}
-	if v := m.View().Content; !strings.Contains(ansi.Strip(v), "/wr") {
+	if v := m.View().Content; !strings.Contains(ansi.Strip(v), "/rea") {
 		t.Fatal("prompt renders in the modal footer")
 	}
 	pressKey(m, keyMsg("j"))
@@ -272,7 +272,7 @@ func TestHelpFilter(t *testing.T) {
 	for range 2 {
 		pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
-	if m.helpFilter != "wr" {
+	if m.helpFilter != "rea" {
 		t.Fatalf("backspace edits the filter: %q", m.helpFilter)
 	}
 
@@ -382,20 +382,19 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 			t.Fatal("G must go to bottom")
 		}
 	case "h", "l", "0":
-		settle(t, m, press(m, "w"))
 		switch key {
 		case "l":
 			x0 := m.vp.XOffset()
 			pressKey(m, keyMsg(key))
 			if m.vp.XOffset() <= x0 {
-				t.Fatal("l must pan right in nowrap")
+				t.Fatal("l must pan right")
 			}
 		case "h":
 			pressKey(m, keyMsg("l"))
 			x0 := m.vp.XOffset()
 			pressKey(m, keyMsg(key))
 			if m.vp.XOffset() >= x0 {
-				t.Fatal("h must pan left in nowrap")
+				t.Fatal("h must pan left")
 			}
 		case "0":
 			pressKey(m, keyMsg("l"))
@@ -404,21 +403,14 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 				t.Fatal("0 must reset pan")
 			}
 		}
-	case "w":
-		before := m.wrapMode
-		cmd := press(m, key)
-		if cmd == nil || m.wrapMode == before {
-			t.Fatal("w must toggle wrap and re-render")
-		}
-		settle(t, m, cmd)
 	case "s":
 		press(m, key)
-		if !m.srcView || m.wrapMode {
-			t.Fatal("s must enter source nowrap")
+		if !m.srcView {
+			t.Fatal("s must enter source view")
 		}
 		settle(t, m, press(m, key))
-		if m.srcView || !m.wrapMode {
-			t.Fatal("s must restore rendered wrap")
+		if m.srcView {
+			t.Fatal("s must restore rendered view")
 		}
 	case "T":
 		before := m.collapsed

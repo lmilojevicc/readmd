@@ -20,12 +20,11 @@ func main() {
 	}
 }
 
-const usage = "usage: readmd [--style auto|dark|light|notty] [--wrap|--no-wrap] [--no-images] [--no-remote-images] [file]"
+const usage = "usage: readmd [--style auto|dark|light|notty] [--no-images] [--no-remote-images] [file]"
 
 type cliOpts struct {
 	imgs  pager.ImageConfig
 	style string
-	wrap  bool
 	pos   []string
 }
 
@@ -38,10 +37,6 @@ func parseArgs(args []string) (cliOpts, error) {
 			opts.imgs.NoImages = true
 		case "--no-remote-images":
 			opts.imgs.NoRemote = true
-		case "--wrap":
-			opts.wrap = true
-		case "--no-wrap":
-			opts.wrap = false
 		case "--style":
 			i++
 			if i >= len(args) {
@@ -115,7 +110,6 @@ func run() error {
 	if err := model.SetStyle(opts.style); err != nil {
 		return err
 	}
-	model.SetWrap(opts.wrap)
 	if name != "" && name != "(stdin)" {
 		model.SetPath(name)
 		opts.imgs.DocDir = filepath.Dir(name)

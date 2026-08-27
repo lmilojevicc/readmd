@@ -11,7 +11,7 @@ func TestRenderWidths(t *testing.T) {
 		t.Fatalf("read testdata: %v", err)
 	}
 	for _, width := range []int{40, 80, 120} {
-		out, err := Render(string(src), width, true)
+		out, err := Render(string(src), width)
 		if err != nil {
 			t.Errorf("width %d: %v", width, err)
 			continue
@@ -31,6 +31,7 @@ func TestSanitize(t *testing.T) {
 		{"bom", "\ufeffhello", "hello"},
 		{"control chars", "a\x00b\x07c\x7f", "a\ufffdb\ufffdc\ufffd"},
 		{"kitty placeholder preserved", "a\U0010EEEE\u0305\u030D b", "a\U0010EEEE\u0305\u030D b"},
+		{"emoji grapheme formats preserved", "👨‍👩‍👧‍👦 🏴󠁧󠁢󠁳󠁣󠁴󠁿", "👨‍👩‍👧‍👦 🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
 	} {
 		if got := sanitize(tc.in); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)

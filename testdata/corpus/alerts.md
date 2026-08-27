@@ -4,7 +4,7 @@
 > Note bodies stay default-colored; only the rail and title take the type hue.
 
 > [!TIP]
-> Tips can span several lines so wrapping gets exercised across widths.
+> Tips can span several source lines and retain their content across widths.
 
 > [!IMPORTANT]
 > Important information with `inline code` and a [link](https://example.com).

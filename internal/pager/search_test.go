@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -41,7 +43,7 @@ func TestFindMatches(t *testing.T) {
 }
 
 var searchDoc = "# Top\n\nalpha beta\n\ngamma ALPHA delta\n\n" +
-	strings.Repeat("filler\n", 20) + "\nfinal alpha tail\n"
+	strings.Repeat("filler\n\n", 20) + "final alpha tail\n"
 
 func TestSearchNextWithinTopLine(t *testing.T) {
 	m := newRenderedModel(t, "# aa aa aa\n\n"+strings.Repeat("pad line\n\n", 20), 60, 10)
@@ -246,13 +248,12 @@ func TestSearchWrapAround(t *testing.T) {
 func TestSearchSwallowsKeysWhileTyping(t *testing.T) {
 	m := newRenderedModel(t, searchDoc, 60, 10)
 	press(m, "/")
-	wrapBefore := m.wrapMode
 	collapsedBefore := m.collapsed
 	press(m, "w")
 	press(m, "T")
 	press(m, "j")
-	if m.wrapMode != wrapBefore || m.collapsed != collapsedBefore {
-		t.Fatal("search input must capture mode-toggling keys")
+	if m.collapsed != collapsedBefore {
+		t.Fatal("search input must capture transform keys")
 	}
 	if m.search.query != "wTj" {
 		t.Fatalf("printables append to query, got %q", m.search.query)
@@ -261,8 +262,8 @@ func TestSearchSwallowsKeysWhileTyping(t *testing.T) {
 	if m.search.active {
 		t.Fatal("esc cancels input")
 	}
-	if !m.wrapMode || m.collapsed {
-		t.Fatal("modes unchanged after cancel")
+	if m.collapsed {
+		t.Fatal("transform state changed after cancel")
 	}
 }
 
@@ -295,6 +296,70 @@ func TestSearchNoMatchesAndEmptyQuery(t *testing.T) {
 	press(m, "n")
 	if m.vp.YOffset() != top {
 		t.Fatal("empty committed query must not move viewport")
+	}
+}
+
+func TestSearchRevealsSelectedMatchHorizontally(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		prefix int
+		reader bool
+		query  string
+	}{
+		{"regular", 40, 30, false, "needle"},
+		{"centered reader", 140, 70, true, "needle"},
+		{"overlong query reveals beginning", 40, 30, false, strings.Repeat("x", 60)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := strings.Repeat("界", tc.prefix) + " " + tc.query + " tail\n"
+			m := newRenderedModel(t, doc, tc.width, 16)
+			if tc.reader {
+				settle(t, m, press(m, "r"))
+			}
+
+			ms := findMatches(m.stripped, tc.query)
+			if len(ms) != 1 || ms[0].start < m.vp.Width() {
+				t.Fatalf("precondition: matches=%v viewport width=%d", ms, m.vp.Width())
+			}
+			if off := m.vp.XOffset(); off != 0 {
+				t.Fatalf("precondition: x offset=%d", off)
+			}
+
+			press(m, "/")
+			typeQuery(m, tc.query)
+			pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			mt := m.search.matches[m.search.pos]
+			left, right := m.vp.XOffset(), m.vp.XOffset()+m.vp.Width()
+			if mt.end-mt.start > m.vp.Width() {
+				if left != mt.start {
+					t.Fatalf("overlong match must reveal its beginning at %d, got viewport [%d,%d)", mt.start, left, right)
+				}
+			} else if mt.start < left || mt.end > right {
+				t.Fatalf("selected columns [%d,%d) outside viewport [%d,%d)",
+					mt.start, mt.end, left, right)
+			}
+			if !strings.Contains(m.vp.View(), curHL) {
+				t.Fatal("current highlight is not visible")
+			}
+
+			if tc.reader {
+				found := false
+				for _, line := range strings.Split(bodyOf(m), "\n") {
+					if !strings.Contains(line, curHL) {
+						continue
+					}
+					found = true
+					if plain := ansi.Strip(line); !strings.HasPrefix(plain, strings.Repeat(" ", 10)) {
+						t.Fatalf("selected line lost centered margin: %q", plain)
+					}
+				}
+				if !found {
+					t.Fatal("selected match absent from centered reader frame")
+				}
+			}
+		})
 	}
 }
 

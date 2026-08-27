@@ -29,7 +29,7 @@ func TestAlertGoldens(t *testing.T) {
 	for _, k := range alertKinds {
 		t.Run(k.name, func(t *testing.T) {
 			src := "> [!" + strings.ToUpper(k.name) + "]\n> body one\n> body two\n"
-			out, _, _, err := renderDoc(imgCtx{}, src, 40, true, paletteStyleName)
+			out, _, _, err := renderDoc(imgCtx{}, src, 40, paletteStyleName)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestAlertAcceptedVariants(t *testing.T) {
 		{"mixed case", "> [!WaRnInG]\n> b\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _, _, err := renderDoc(imgCtx{}, tc.src, 40, true, paletteStyleName)
+			out, _, _, err := renderDoc(imgCtx{}, tc.src, 40, paletteStyleName)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +102,7 @@ func styledTitlePresent(out string) bool {
 
 func TestAlertMultiBlockBody(t *testing.T) {
 	src := "> [!TIP]\n> intro para\n>\n> - x\n> - y\n"
-	out, _, _, err := renderDoc(imgCtx{}, src, 40, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, src, 40, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestAlertMultiBlockBody(t *testing.T) {
 
 func TestAlertTitleOnlyFirstLineStyled(t *testing.T) {
 	src := "> [!CAUTION]\n> a\n>\n> b\n"
-	out, _, _, err := renderDoc(imgCtx{}, src, 40, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, src, 40, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestAlertTitleOnlyFirstLineStyled(t *testing.T) {
 }
 
 func TestPlainQuoteMagentaBar(t *testing.T) {
-	out, _, _, err := renderDoc(imgCtx{}, "> hello\n> world\n", 40, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, "> hello\n> world\n", 40, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +158,11 @@ func TestAlertDeclines(t *testing.T) {
 		{"table in quote", "> [!NOTE]\n> | A |\n> | - |\n> | b |\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _, _, err := renderStyled(imgCtx{}, tc.src, 40, true, paletteStyleName, true)
+			got, _, _, err := renderStyled(imgCtx{}, tc.src, paletteStyleName, true)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, _, _, err := renderStyled(imgCtx{}, tc.src, 40, true, paletteStyleName, false)
+			want, _, _, err := renderStyled(imgCtx{}, tc.src, paletteStyleName, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,28 +203,24 @@ func TestSpliceAlertsAnomaliesBail(t *testing.T) {
 	}
 }
 
-func TestAlertBailRerendersPristine(t *testing.T) {
+func TestAlertNarrowWidthKeepsStyling(t *testing.T) {
 	src := "> [!NOTE]\n> body\n"
-	with, _, _, err := renderDoc(imgCtx{}, src, 12, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, src, 12, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, _, _, err := renderStyled(imgCtx{}, src, 12, true, paletteStyleName, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if with != plain {
-		t.Errorf("bailed render must equal pristine:\ngot  %q\nwant %q", with, plain)
+	if !styledTitlePresent(out) || !strings.Contains(ansi.Strip(out), "body") {
+		t.Fatalf("narrow alert lost styling or content: %q", ansi.Strip(out))
 	}
 }
 
 func TestAlertDocLiteralMarkerSurvives(t *testing.T) {
 	src := "readmd-alert-x-0s fake literal line\n\n> [!NOTE]\n> body\n"
-	got, _, _, err := renderDoc(imgCtx{}, src, 60, true, paletteStyleName)
+	got, _, _, err := renderDoc(imgCtx{}, src, 60, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, _, _, err := renderStyled(imgCtx{}, src, 60, true, paletteStyleName, false)
+	want, _, _, err := renderStyled(imgCtx{}, src, paletteStyleName, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,14 +233,14 @@ func TestAlertDocLiteralMarkerSurvives(t *testing.T) {
 	}
 }
 
-func TestAlertNowrapMode(t *testing.T) {
+func TestAlertNaturalWidth(t *testing.T) {
 	src := "> [!WARNING]\n> careful text\n"
-	out, _, _, err := renderDoc(imgCtx{}, src, 80, false, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, src, 80, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !styledTitlePresent(out) {
-		t.Errorf("nowrap mode lost alert styling: %q", ansi.Strip(out))
+		t.Errorf("natural-width render lost alert styling: %q", ansi.Strip(out))
 	}
 	if strings.Contains(ansi.Strip(out), "readmd-alert-") {
 		t.Errorf("sentinel leaked: %q", ansi.Strip(out))
@@ -254,7 +250,7 @@ func TestAlertNowrapMode(t *testing.T) {
 func TestAlertBetweenProse(t *testing.T) {
 	src := "intro line\n\n> [!NOTE]\n> body\n\noutro line\n"
 	for _, w := range []int{40, 80} {
-		out, _, _, err := renderDoc(imgCtx{}, src, w, true, paletteStyleName)
+		out, _, _, err := renderDoc(imgCtx{}, src, w, paletteStyleName)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +269,7 @@ func TestAlertBetweenProse(t *testing.T) {
 
 func TestAlertMultipleInDoc(t *testing.T) {
 	src := "> [!NOTE]\n> one\n\n> [!TIP]\n> two\n\nplain tail\n"
-	out, _, _, err := renderDoc(imgCtx{}, src, 60, true, paletteStyleName)
+	out, _, _, err := renderDoc(imgCtx{}, src, 60, paletteStyleName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,38 +286,32 @@ func TestAlertMultipleInDoc(t *testing.T) {
 	}
 }
 
-// Sentinel lines are 17 columns ("readmd-alert-" + 2 hex + index + flag);
-// glamour keeps such a word intact only from width 21 up (17 + margin + wrap
-// slack). Below that the nonce could shrink no further without giving up
-// doc-literal collision safety, so 21 is the minimum alert-styling width.
+// Alert sentinels must remain intact at narrow viewport widths.
 func TestAlertMinWidth(t *testing.T) {
 	for _, k := range alertKinds {
 		t.Run(k.name, func(t *testing.T) {
 			src := "> [!" + strings.ToUpper(k.name) + "]\n> body\n"
-			out, _, _, err := renderDoc(imgCtx{}, src, 21, true, paletteStyleName)
+			out, _, _, err := renderDoc(imgCtx{}, src, 20, paletteStyleName)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !styledTitlePresent(out) {
-				t.Errorf("w21: alert not styled: %q", ansi.Strip(out))
+				t.Errorf("w20: alert not styled: %q", ansi.Strip(out))
 			}
 			if strings.Contains(ansi.Strip(out), "readmd-alert-") {
-				t.Errorf("w21: sentinel leaked: %q", ansi.Strip(out))
+				t.Errorf("w20: sentinel leaked: %q", ansi.Strip(out))
 			}
 		})
 	}
 }
 
-// A fence immediately followed by an alert used to merge the code end
-// sentinel into the alert start sentinel's paragraph; at narrow widths
-// glamour word-wrapped the pair and the splice bailed. Widths 25/30 must
-// style; width 20 sits below the 21-col sentinel floor and must at least
-// degrade to a clean pristine render.
+// A fence immediately followed by an alert must preserve both blocks at
+// narrow viewport widths.
 func TestAlertAdjacentFenceNarrowWidths(t *testing.T) {
 	src := "```go\nx := 1\n```\n> [!NOTE]\n> body text\n"
 	for _, w := range []int{20, 25, 30} {
 		t.Run(strconv.Itoa(w), func(t *testing.T) {
-			out, _, _, err := renderDoc(imgCtx{}, src, w, true, paletteStyleName)
+			out, _, _, err := renderDoc(imgCtx{}, src, w, paletteStyleName)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -332,7 +322,7 @@ func TestAlertAdjacentFenceNarrowWidths(t *testing.T) {
 			if !strings.Contains(s, "x := 1") || !strings.Contains(s, "body") || !strings.Contains(s, "text") {
 				t.Errorf("w%d: content lost: %q", w, s)
 			}
-			if w >= 25 && !styledTitlePresent(out) {
+			if !styledTitlePresent(out) {
 				t.Errorf("w%d: alert not styled: %q", w, s)
 			}
 		})
@@ -355,7 +345,7 @@ func TestAlertLazyContinuation(t *testing.T) {
 		{"heading ends absorption", "> [!NOTE]\n> body\n# Heading\n", "", "# Heading"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _, _, err := renderDoc(imgCtx{}, tc.src, 60, true, paletteStyleName)
+			out, _, _, err := renderDoc(imgCtx{}, tc.src, 60, paletteStyleName)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -19,7 +19,6 @@ type Model struct {
 	width  int
 	height int
 
-	wrapMode  bool
 	collapsed bool
 	style     string
 
@@ -41,18 +40,16 @@ type Model struct {
 	tocSel   int
 	search   searchState
 
-	srcView       bool
-	wrapBeforeSrc bool
-	helpOpen      bool
-	helpTop       int
-	helpFilter    string
-	helpPrompt    bool
-	edited        bool
-	reader        bool
+	srcView    bool
+	helpOpen   bool
+	helpTop    int
+	helpFilter string
+	helpPrompt bool
+	edited     bool
+	reader     bool
 
 	gen       int
 	rendering bool
-	renderW   int
 	errMsg    string
 }
 
@@ -76,8 +73,6 @@ func (m *Model) SetStyle(name string) error {
 	return nil
 }
 
-func (m *Model) SetWrap(wrap bool) { m.wrapMode = wrap }
-
 func (m *Model) Init() tea.Cmd {
 	if m.path == "" {
 		return nil
@@ -89,7 +84,6 @@ func (m *Model) Init() tea.Cmd {
 type renderedMsg struct {
 	content  string
 	err      error
-	width    int
 	gen      int
 	heads    []heading
 	stripped []string
@@ -101,10 +95,9 @@ type renderedMsg struct {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		resized := msg.Width != m.width
 		m.width = msg.Width
 		m.height = msg.Height
-		resized := msg.Width != m.renderW
-		m.renderW = msg.Width
 		m.syncVPWidth()
 		m.vp.SetHeight(max(1, msg.Height-1))
 		if resized {
@@ -228,25 +221,11 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "G", "end":
 		m.vp.GotoBottom()
 	case "h", "left":
-		if m.canPanHorizontally() {
-			m.vp.ScrollLeft(m.hStep())
-		}
+		m.vp.ScrollLeft(m.hStep())
 	case "l", "right":
-		if m.canPanHorizontally() {
-			m.vp.ScrollRight(m.hStep())
-		}
+		m.vp.ScrollRight(m.hStep())
 	case "0":
-		if m.canPanHorizontally() {
-			m.vp.SetXOffset(0)
-		}
-	case "w":
-		if m.srcView {
-			return nil
-		}
-		m.wrapMode = !m.wrapMode
 		m.vp.SetXOffset(0)
-		m.syncVPWidth()
-		return m.requestRender()
 	case "T":
 		if m.srcView {
 			return nil
@@ -270,9 +249,6 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		m.reader = !m.reader
-		if m.reader && m.wrapMode {
-			m.vp.SetXOffset(0)
-		}
 		m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 		m.syncVPWidth()
 		return m.requestRender()
@@ -291,17 +267,11 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
 
-func (m *Model) canPanHorizontally() bool {
-	return !m.wrapMode || (!m.reader && m.widest > m.vp.Width())
-}
-
-// readerFrame reports whether the viewport is pinned to the reader column in
-// nowrap framing: lines are stored unpadded at their unwrapped content width,
-// and the centered margin exists only as a display prefix (see View).
-// Reader+wrap instead bakes the margin into the stored lines and keeps the
-// full-width viewport.
+// readerFrame reports whether the viewport is pinned to the centered reader
+// column. Lines retain their unwrapped content width; the margin is a
+// display-only prefix (see View).
 func (m *Model) readerFrame() (on bool, effW int) {
-	if m.reader && !m.wrapMode && !m.srcView {
+	if m.reader && !m.srcView {
 		w, _ := readerGeom(m.width, true)
 		return true, w
 	}
@@ -350,10 +320,8 @@ func (m *Model) requestRender() tea.Cmd {
 		src = collapseTables(src)
 	}
 	m.rendering = true
-	w, margin := readerGeom(m.renderW, m.reader)
+	w, _ := readerGeom(m.width, m.reader)
 	gen, st := m.gen, m.style
-	wrap := m.wrapMode
-	readerNowrap := m.reader && !m.wrapMode
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -362,18 +330,15 @@ func (m *Model) requestRender() tea.Cmd {
 		store:    m.store,
 	}
 	return func() tea.Msg {
-		out, pending, g, err := renderDoc(o, src, w, wrap, st)
+		out, pending, g, err := renderDoc(o, src, w, st)
 		if err != nil {
-			return renderedMsg{err: err, width: w, gen: gen}
-		}
-		if !readerNowrap {
-			out = padMargin(out, margin)
+			return renderedMsg{err: err, gen: gen}
 		}
 		stripped := splitStrip(out)
 		heads := extractHeadings(src)
 		mapHeadings(heads, stripped)
 		return renderedMsg{
-			content: out, width: w, gen: gen,
+			content: out, gen: gen,
 			heads: heads, stripped: stripped, pending: pending,
 			gfx: g, warn: warnFrom(m.store),
 		}
@@ -448,17 +413,9 @@ func (m *Model) View() tea.View {
 // chip. The bar itself is transparent (terminal background). Narrowing drops
 // the help chip first, then the percent; the brand chip is never truncated.
 func (m *Model) statusBar() string {
-	mode := "wrap"
-	if !m.wrapMode {
-		mode = "nowrap"
-	}
-	view := "render"
+	info := "render"
 	if m.srcView {
-		view = "source"
-	}
-	info := view + " " + mode
-	if m.wrapMode && !m.reader && !m.srcView && m.widest > m.vp.Width() {
-		info += " wide"
+		info = "source"
 	}
 	if m.reader && !m.srcView {
 		info += " reader"
