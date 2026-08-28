@@ -20,6 +20,8 @@ func keyMsg(name string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: ' ', Text: " "}
 	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "Backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	default:
 		return tea.KeyPressMsg{Code: rune(name[0]), Text: name}
 	}
@@ -330,6 +332,11 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 	switch key {
 	case "h", "l", "0":
 		m = newRenderedModel(t, "| "+strings.Repeat("x", 200)+" |\n| - |\n", 60, 12)
+	case "t":
+		m = newRenderedModel(t, "[site](https://example.com)\n", 60, 12)
+	case "Backspace":
+		m.vp.SetYOffset(4)
+		m.locations = append(m.locations, documentLocation{y: 1})
 	}
 	switch key {
 	case "j":
@@ -403,6 +410,21 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 				t.Fatal("0 must reset pan")
 			}
 		}
+	case "t":
+		press(m, key)
+		if !m.targets.active || len(m.targets.targets) != 1 {
+			t.Fatal("t must open visible target hints")
+		}
+	case "Backspace":
+		pressKey(m, keyMsg(key))
+		if m.vp.YOffset() != 1 || len(m.locations) != 0 {
+			t.Fatal("Backspace must restore the last internal location")
+		}
+	case "m":
+		press(m, key)
+		if m.mouse || m.flash != "mouse off" {
+			t.Fatalf("m must disable mouse capture: mouse=%v flash=%q", m.mouse, m.flash)
+		}
 	case "s":
 		press(m, key)
 		if !m.srcView {
@@ -424,9 +446,9 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 		if !m.tocOpen {
 			t.Fatal("o must open the outline")
 		}
-		press(m, "t")
+		press(m, "x")
 		if !m.tocOpen {
-			t.Fatal("lowercase t is unbound and must not disturb the outline")
+			t.Fatal("an unbound key must not disturb the outline")
 		}
 	case "/":
 		press(m, key)

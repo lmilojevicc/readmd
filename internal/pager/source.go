@@ -32,7 +32,7 @@ func (m *Model) applySource() {
 	for i := range heads {
 		heads[i].line = heads[i].srcLine
 	}
-	m.syncView(lines, lines, heads)
+	m.syncView(lines, lines, heads, nil)
 }
 
 func sourceLines(src string) []string {

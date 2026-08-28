@@ -27,18 +27,24 @@ type Model struct {
 	anchor   *anchorState
 	flash    string
 	readFile func(string) ([]byte, error)
+	openURL  func(string) error
+	mouse    bool
 
 	gfx    bool
 	imgCfg ImageConfig
 	store  *imageStore
 
-	heads    []heading
-	stripped []string
-	base     []string
-	widest   int
-	tocOpen  bool
-	tocSel   int
-	search   searchState
+	heads           []heading
+	stripped        []string
+	base            []string
+	links           []linkTarget
+	widest          int
+	tocOpen         bool
+	tocSel          int
+	search          searchState
+	targets         targetMode
+	locations       []documentLocation
+	pendingLocation *documentLocation
 
 	srcView    bool
 	helpOpen   bool
@@ -59,6 +65,8 @@ func New(source, title string) *Model {
 		source:   source,
 		title:    title,
 		readFile: os.ReadFile,
+		openURL:  openExternalURL,
+		mouse:    true,
 	}
 }
 
@@ -87,19 +95,23 @@ type renderedMsg struct {
 	gen      int
 	heads    []heading
 	stripped []string
+	links    []linkTarget
 	pending  []string
 	gfx      docGfx
 	warn     string
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.syncVPHeight()
+	defer m.syncVPHeight()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.stopTargets(true)
 		resized := msg.Width != m.width
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncVPWidth()
-		m.vp.SetHeight(max(1, msg.Height-1))
+		m.syncVPHeight()
 		if resized {
 			if m.srcView {
 				m.clampXWidest()
@@ -122,7 +134,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.errMsg = ""
-		m.syncView(strings.Split(msg.content, "\n"), msg.stripped, msg.heads)
+		m.syncView(strings.Split(msg.content, "\n"), msg.stripped, msg.heads, msg.links)
 		if m.store != nil {
 			m.store.applyGfx(msg.gfx.tx, msg.gfx.places)
 		}
@@ -152,13 +164,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.requestRender()
 
+	case openedURLMsg:
+		m.handleOpenedURL(msg)
+		return m, nil
+
+	case tea.MouseWheelMsg:
+		return m, m.handleMouseWheel(msg)
+
+	case tea.MouseClickMsg:
+		return m, m.handleMouseClick(msg)
+
 	case tea.KeyMsg:
 		m.errMsg = ""
 		m.flash = ""
+		m.syncVPHeight()
 		if msg.String() == "ctrl+c" {
 			return m, m.quitCmd()
 		}
 		switch {
+		case m.targets.active:
+			return m, m.handleTargetKey(msg)
 		case m.search.active:
 			return m, m.handleSearchKey(msg)
 		case m.tocOpen:
@@ -176,9 +201,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // syncView installs a new line set (rendered or source) into the model.
 // Order matters: refreshSearch runs before the pending anchor is consumed,
 // and x-clamping happens after widest is refreshed.
-func (m *Model) syncView(base, stripped []string, heads []heading) {
+func (m *Model) syncView(base, stripped []string, heads []heading, links []linkTarget) {
+	m.stopTargets(false)
 	m.base = base
 	m.stripped = stripped
+	m.links = links
 	m.heads = heads
 	m.widest = widestLine(stripped)
 	if m.tocSel >= len(heads) {
@@ -191,6 +218,7 @@ func (m *Model) syncView(base, stripped []string, heads []heading) {
 		m.vp.SetYOffset(restoreOffset(a, heads, len(stripped)))
 	}
 	m.clampXWidest()
+	m.applyPendingLocation()
 }
 
 func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
@@ -226,6 +254,8 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		m.vp.ScrollRight(m.hStep())
 	case "0":
 		m.vp.SetXOffset(0)
+	case "backspace", "ctrl+h":
+		return m.backLocation()
 	case "T":
 		if m.srcView {
 			return nil
@@ -240,6 +270,15 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		m.openSearch()
 	case "?":
 		m.toggleHelp()
+	case "t":
+		m.openTargets()
+	case "m":
+		m.mouse = !m.mouse
+		if m.mouse {
+			m.flash = "mouse on"
+		} else {
+			m.flash = "mouse off"
+		}
 	case "n":
 		m.jumpMatch(1, false)
 	case "N":
@@ -266,6 +305,45 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) hStep() int { return max(8, m.width/10) }
+
+type viewChrome struct {
+	hint, notice, search bool
+}
+
+func (m *Model) chrome() viewChrome {
+	remaining := max(0, m.height-1) // status always owns the last row
+	var c viewChrome
+	if m.targets.active && remaining > 0 {
+		c.hint = true
+		remaining--
+	}
+	if m.search.active && remaining > 0 {
+		c.search = true
+		remaining--
+	}
+	if (m.errMsg != "" || m.flash != "") && remaining > 0 {
+		c.notice = true
+	}
+	return c
+}
+
+func (m *Model) syncVPHeight() {
+	if m.height <= 0 {
+		return
+	}
+	c := m.chrome()
+	rows := 1
+	if c.hint {
+		rows++
+	}
+	if c.notice {
+		rows++
+	}
+	if c.search {
+		rows++
+	}
+	m.vp.SetHeight(max(0, m.height-rows))
+}
 
 // readerFrame reports whether the viewport is pinned to the centered reader
 // column. Lines retain their unwrapped content width; the margin is a
@@ -334,12 +412,14 @@ func (m *Model) requestRender() tea.Cmd {
 		if err != nil {
 			return renderedMsg{err: err, gen: gen}
 		}
+		base := strings.Split(out, "\n")
 		stripped := splitStrip(out)
 		heads := extractHeadings(src)
 		mapHeadings(heads, stripped)
+		links := renderedTargets(src, base, stripped)
 		return renderedMsg{
 			content: out, gen: gen,
-			heads: heads, stripped: stripped, pending: pending,
+			heads: heads, stripped: stripped, links: links, pending: pending,
 			gfx: g, warn: warnFrom(m.store),
 		}
 	}
@@ -375,36 +455,47 @@ func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		v := tea.NewView("")
 		v.AltScreen = true
+		if m.mouse {
+			v.MouseMode = tea.MouseModeCellMotion
+		}
 		return v
 	}
-	var b strings.Builder
-	body := m.vp.View()
-	if on, _ := m.readerFrame(); on {
-		_, margin := readerGeom(m.width, true)
-		body = padMargin(body, margin)
+	m.syncVPHeight()
+	chrome := m.chrome()
+	var rows []string
+	if m.vp.Height() > 0 {
+		body := m.vp.View()
+		if on, _ := m.readerFrame(); on {
+			_, margin := readerGeom(m.width, true)
+			body = padMargin(body, margin)
+		}
+		switch {
+		case m.tocOpen:
+			body = m.applyOverlay(body)
+		case m.helpOpen:
+			body = m.applyHelp(body)
+		}
+		rows = append(rows, body)
 	}
-	switch {
-	case m.tocOpen:
-		body = m.applyOverlay(body)
-	case m.helpOpen:
-		body = m.applyHelp(body)
+	if chrome.hint {
+		rows = append(rows, m.hintStrip())
 	}
-	b.WriteString(body)
-	b.WriteByte('\n')
-	if m.errMsg != "" {
-		b.WriteString(ansi.Truncate(errStyle.Render(m.errMsg), m.width, "…"))
-		b.WriteByte('\n')
-	} else if m.flash != "" {
-		b.WriteString(ansi.Truncate(errStyle.Render(m.flash), m.width, "…"))
-		b.WriteByte('\n')
+	if chrome.notice {
+		if m.errMsg != "" {
+			rows = append(rows, ansi.Truncate(errStyle.Render(m.errMsg), m.width, "…"))
+		} else {
+			rows = append(rows, ansi.Truncate(errStyle.Render(m.flash), m.width, "…"))
+		}
 	}
-	if m.search.active {
-		b.WriteString(m.searchPrompt())
-		b.WriteByte('\n')
+	if chrome.search {
+		rows = append(rows, m.searchPrompt())
 	}
-	b.WriteString(m.statusBar())
-	v := tea.NewView(b.String())
+	rows = append(rows, m.statusBar())
+	v := tea.NewView(strings.Join(rows, "\n"))
 	v.AltScreen = true
+	if m.mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }
 

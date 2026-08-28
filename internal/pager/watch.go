@@ -241,8 +241,12 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 		}
 		return nil
 	}
+	m.stopTargets(true)
+	m.links = nil
 	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 	m.source = src
+	m.locations = nil
+	m.pendingLocation = nil
 	m.flash = "reloaded"
 	if edited {
 		m.flash = "edited"

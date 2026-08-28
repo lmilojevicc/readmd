@@ -37,10 +37,14 @@ func (m *Model) applySearchView() {
 			g.cur = len(g.sps) - 1
 		}
 	}
+	targets := m.targetSpans()
 	var b strings.Builder
 	for i, l := range m.base {
 		if g := groups[i]; g != nil {
 			l = highlightLine(l, g.sps, g.cur)
+		}
+		if sps := targets[i]; len(sps) > 0 {
+			l = highlightLineStyle(l, sps, -1, targetHL, targetHL)
 		}
 		b.WriteString(l)
 		if i < len(m.base)-1 {
@@ -55,6 +59,10 @@ func (m *Model) applySearchView() {
 // continues correctly; sequences surfacing inside a match are hidden so the
 // highlight paints uniformly.
 func highlightLine(line string, sps []span, cur int) string {
+	return highlightLineStyle(line, sps, cur, matchHL, curHL)
+}
+
+func highlightLineStyle(line string, sps []span, cur int, normal, current string) string {
 	var b strings.Builder
 	var active []string
 	st := byte(0)
@@ -62,9 +70,9 @@ func highlightLine(line string, sps []span, cur int) string {
 	open := func() {
 		snap = strings.Join(active, "")
 		if si == cur {
-			b.WriteString(curHL)
+			b.WriteString(current)
 		} else {
-			b.WriteString(matchHL)
+			b.WriteString(normal)
 		}
 		in = true
 	}
