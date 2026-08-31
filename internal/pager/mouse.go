@@ -20,7 +20,7 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		case m.helpOpen:
 			m.scrollHelp(step)
 		case m.tocOpen:
-			m.tocSel = min(max(0, len(m.heads)-1), m.tocSel+step)
+			m.moveTOC(step)
 		default:
 			m.vp.ScrollDown(step)
 		}
@@ -29,7 +29,7 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		case m.helpOpen:
 			m.scrollHelp(-step)
 		case m.tocOpen:
-			m.tocSel = max(0, m.tocSel-step)
+			m.moveTOC(-step)
 		default:
 			m.vp.ScrollUp(step)
 		}

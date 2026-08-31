@@ -48,7 +48,7 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `m` | toggle mouse capture (enabled by default) |
 | `r` | centered 120-column reader viewport with horizontal panning |
 | `s` | toggle rendered / source view |
-| `o` | outline overlay (`j/k` select, `Enter` jump, `Esc` close) |
+| `o` | help-style outline (`j/k` or wheel preview, `/` filters, `Enter` commits, `Esc`/`q`/`o` cancel; prompt `Esc` clears first) |
 | `T` | collapse tables to key-value records |
 | `/` | search; `n` / `N` next / previous match (highlighted) |
 | `?` | help overlay |
@@ -61,9 +61,11 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 
 - Async rendering off the UI thread; resize always re-renders **from source**
   (cached raw markdown, never transformed cached ANSI).
-- TOC with jump-to-heading, incremental search with neovim-style match
-  highlighting, live reload (survives atomic saves, keeps your reading
-  position anchored to the nearest heading).
+- Help-style TOC with title filtering and reversible heading previews (`Esc`,
+  `q`, or `o` cancels; filter-prompt `Esc` clears before closing), incremental
+  search with neovim-style match highlighting, live reload
+  (survives atomic saves, keeps your reading position anchored to the nearest
+  heading).
 - GFM: tables, task lists, footnotes, strikethrough, alerts. Mermaid
   `flowchart`/`sequenceDiagram` render as box-drawing ASCII (unsupported
   diagram types decline to source instead of garbling). LaTeX math becomes

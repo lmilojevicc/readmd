@@ -40,7 +40,7 @@ var helpEntries = []helpEntry{
 	{"s", "rendered/source view", "Modes"},
 	{"T", "collapse tables", "Modes"},
 	{"r", "toggle reader column", "Modes"},
-	{"o", "outline (table of contents)", "Modes"},
+	{"o", "outline: / filter; Enter jump; Esc/q/o cancel", "Modes"},
 	{"/", "search forward", "Search"},
 	{"n", "next match", "Search"},
 	{"N", "previous match", "Search"},
@@ -157,6 +157,35 @@ func helpEntryMatches(e helpEntry, f string) bool {
 		strings.Contains(strings.ToLower(e.desc), f)
 }
 
+var modalBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+
+func modalTop(title string, innerW int) string {
+	head := "╭" + strings.Repeat("─", innerW) + "╮"
+	if fill := innerW - ansi.StringWidth(title) - 3; fill >= 1 {
+		head = "╭─ " + title + " " + strings.Repeat("─", fill) + "╮"
+	}
+	return modalBorderStyle.Render(head)
+}
+
+func modalRow(content string, innerW int) string {
+	content = ansi.Truncate(content, innerW, "")
+	content += strings.Repeat(" ", max(0, innerW-ansi.StringWidth(content)))
+	return modalBorderStyle.Render("│") + content + modalBorderStyle.Render("│")
+}
+
+func modalBottom(innerW int, segment string) string {
+	foot := modalBorderStyle.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	if segment == "" {
+		return foot
+	}
+	segment = ansi.Truncate(segment, innerW-1, "…")
+	if fill := innerW - ansi.StringWidth(segment); fill >= 1 {
+		return modalBorderStyle.Render("╰"+strings.Repeat("─", fill)) + segment +
+			modalBorderStyle.Render("╯")
+	}
+	return foot
+}
+
 func (m *Model) applyHelp(body string) string {
 	rows := m.helpRows()
 	if len(rows) == 0 {
@@ -191,36 +220,19 @@ func (m *Model) helpRows() []string {
 	top := min(m.helpTop, max(0, len(all)-visible))
 	end := min(len(all), top+visible)
 	box := make([]string, 0, visible+2)
-	// Palette index 6 (cyan): visible against rendered text without painting
-	// backgrounds, keeping the starship no-fill invariant for borders.
-	border := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	head := "╭" + strings.Repeat("─", innerW) + "╮"
-	if fill := innerW - len(helpTitle) - 3; fill >= 1 {
-		head = "╭─ " + helpTitle + " " + strings.Repeat("─", fill) + "╮"
-	}
-	box = append(box, border.Render(head))
+	box = append(box, modalTop(helpTitle, innerW))
 	for i := 0; i < visible; i++ {
 		l := ""
 		if top+i < end {
-			l = ansi.Truncate(all[top+i], innerW, "")
+			l = all[top+i]
 		}
-		l += strings.Repeat(" ", max(0, innerW-ansi.StringWidth(l)))
-		box = append(box, border.Render("│")+l+border.Render("│"))
+		box = append(box, modalRow(l, innerW))
 	}
-	foot := border.Render("╰" + strings.Repeat("─", innerW) + "╯")
 	seg := ""
 	if m.helpPrompt {
 		seg = "/" + m.helpFilter
 	} else if len(all) > visible {
 		seg = fmt.Sprintf(" %d of %d ", min(end, len(all)), len(all))
 	}
-	if seg == "" {
-		return append(box, foot)
-	}
-	seg = ansi.Truncate(seg, innerW-1, "…")
-	if fill := innerW - ansi.StringWidth(seg); fill >= 1 {
-		foot = border.Render("╰"+strings.Repeat("─", fill)) + seg +
-			border.Render("╯")
-	}
-	return append(box, foot)
+	return append(box, modalBottom(innerW, seg))
 }

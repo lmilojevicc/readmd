@@ -173,6 +173,7 @@ func TestOverlayRefusesTinyPanels(t *testing.T) {
 		{"help zero width", "?", 4, 10, func(m *Model) bool { return m.helpOpen }},
 		{"toc zero width", "o", 4, 10, func(m *Model) bool { return m.tocOpen }},
 		{"help short height", "?", 40, 5, func(m *Model) bool { return m.helpOpen }},
+		{"toc short height", "o", 40, 5, func(m *Model) bool { return m.tocOpen }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newRenderedModel(t, srcDoc, tc.w, tc.h)

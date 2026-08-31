@@ -391,12 +391,16 @@ func TestMouseWheelDocumentOverlaysBoundsAndDisabled(t *testing.T) {
 
 	toc := newRenderedModel(t, tocDoc, 60, 12)
 	toc.openTOC()
+	originY := toc.vp.YOffset()
 	sendMouseWheel(toc, tea.MouseWheelDown)
-	if toc.tocSel != min(mouseWheelStep, len(toc.heads)-1) {
-		t.Fatalf("toc wheel selection=%d heads=%d", toc.tocSel, len(toc.heads))
+	if toc.tocSel != min(mouseWheelStep, len(toc.heads)-1) || !toc.tocPreview {
+		t.Fatalf("toc wheel selection=%d preview=%v heads=%d", toc.tocSel, toc.tocPreview, len(toc.heads))
+	}
+	if toc.vp.YOffset() != originY {
+		t.Fatal("toc wheel preview mutated the real viewport")
 	}
 	sendMouseWheel(toc, tea.MouseWheelUp)
-	if toc.tocSel != 0 {
-		t.Fatalf("toc wheel up selection=%d", toc.tocSel)
+	if toc.tocSel != 0 || !toc.tocPreview {
+		t.Fatalf("toc wheel up selection=%d preview=%v", toc.tocSel, toc.tocPreview)
 	}
 }

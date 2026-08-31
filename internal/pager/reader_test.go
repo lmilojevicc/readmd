@@ -276,8 +276,28 @@ func TestReaderOverlaysCompose(t *testing.T) {
 
 	press(m, "o")
 	lines := strings.Split(bodyOf(m), "\n")
-	if s := ansi.Strip(lines[0]); !strings.HasPrefix(s, "Alpha") {
-		t.Fatalf("toc panel must sit at column 0, got %q", s)
+	outlineTop := -1
+	for i, line := range lines {
+		if strings.Contains(ansi.Strip(line), "╭─ Outline") {
+			outlineTop = i
+			break
+		}
+	}
+	if outlineTop < 0 {
+		t.Fatal("centered outline modal missing under reader mode")
+	}
+	outline := []rune(ansi.Strip(lines[outlineTop]))
+	left, right := -1, -1
+	for i, ch := range outline {
+		if ch == '╭' && left < 0 {
+			left = i
+		}
+		if ch == '╮' && right < 0 {
+			right = i
+		}
+	}
+	if left < 0 || right < left || left != (vw-(right-left+1))/2 {
+		t.Fatalf("outline modal not centered: %q", string(outline))
 	}
 	last := ansi.Strip(lines[len(lines)-1])
 	if strings.TrimSpace(last) != "" && !strings.HasPrefix(last, strings.Repeat(" ", 10)) {

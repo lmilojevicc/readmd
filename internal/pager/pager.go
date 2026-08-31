@@ -41,6 +41,9 @@ type Model struct {
 	widest          int
 	tocOpen         bool
 	tocSel          int
+	tocFilter       string
+	tocPrompt       bool
+	tocPreview      bool
 	search          searchState
 	targets         targetMode
 	locations       []documentLocation
@@ -110,6 +113,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		resized := msg.Width != m.width
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.tocOpen && !m.tocFits() {
+			m.closeTOC()
+		}
 		m.syncVPWidth()
 		m.syncVPHeight()
 		if resized {
@@ -210,6 +216,13 @@ func (m *Model) syncView(base, stripped []string, heads []heading, links []linkT
 	m.widest = widestLine(stripped)
 	if m.tocSel >= len(heads) {
 		m.tocSel = max(0, len(heads)-1)
+	}
+	if m.tocOpen {
+		if len(heads) == 0 || !m.tocFits() {
+			m.closeTOC()
+		} else {
+			m.setTOCFilter(m.tocFilter)
+		}
 	}
 	m.refreshSearch()
 	if m.anchor != nil {
@@ -465,6 +478,9 @@ func (m *Model) View() tea.View {
 	var rows []string
 	if m.vp.Height() > 0 {
 		body := m.vp.View()
+		if m.tocOpen {
+			body = m.tocPreviewBody()
+		}
 		if on, _ := m.readerFrame(); on {
 			_, margin := readerGeom(m.width, true)
 			body = padMargin(body, margin)

@@ -241,6 +241,7 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 		}
 		return nil
 	}
+	m.closeTOC()
 	m.stopTargets(true)
 	m.links = nil
 	m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}

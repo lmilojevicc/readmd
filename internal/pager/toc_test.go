@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -19,8 +20,8 @@ func TestExtractHeadings(t *testing.T) {
 		{"duplicates", "## Dup\n\ntext\n\n## Dup\n", []heading{{2, "Dup", 0, 0}, {2, "Dup", 0, 0}}},
 		{"all levels", "##### E\n###### F\n", []heading{{5, "E", 0, 0}, {6, "F", 0, 0}}},
 		{"setext", "Title\n======\n", []heading{{1, "Title", 0, 0}}},
-		{"inline markup", "## `code` and *em* and [l](https://x.io)\n",
-			[]heading{{2, "code and em and l https://x.io", 0, 0}}},
+		{"inline markup and linked title", "## `code` and *em* and [l](https://x.io)\n",
+			[]heading{{2, "code and em and l", 0, 0}}},
 		{"cjk emoji", "## 中文 🎉 head\n", []heading{{2, "中文 🎉 head", 0, 0}}},
 		{"no headings", "just prose\n\ntext\n", nil},
 	} {
@@ -190,144 +191,377 @@ func pressKey(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-func TestTOCOpenJumpClose(t *testing.T) {
-	m := newRenderedModel(t, tocDoc, 60, 10)
+func TestTOCExperimentalPreviewCommitAndCancel(t *testing.T) {
+	for _, closer := range []string{"esc", "q", "o"} {
+		t.Run("cancel "+closer, func(t *testing.T) {
+			m := newRenderedModel(t, tocDoc, 80, 12)
+			m.vp.SetYOffset(m.heads[1].line)
+			m.vp.SetXOffset(7)
+			x, y := m.vp.XOffset(), m.vp.YOffset()
+			press(m, "o")
+			if !m.tocOpen || m.tocSel != 1 || m.tocPreview {
+				t.Fatalf("open state open=%v sel=%d preview=%v", m.tocOpen, m.tocSel, m.tocPreview)
+			}
+			press(m, "j")
+			if m.tocSel != 2 || !m.tocPreview || !strings.Contains(ansi.Strip(m.tocPreviewBody()), "Gamma") {
+				t.Fatalf("selection did not preview Gamma: sel=%d preview=%v body=%q", m.tocSel, m.tocPreview, ansi.Strip(m.tocPreviewBody()))
+			}
+			if m.vp.XOffset() != x || m.vp.YOffset() != y {
+				t.Fatal("experimental preview mutated the real viewport")
+			}
+			pressKey(m, keyMsg(closer))
+			if m.tocOpen || m.vp.XOffset() != x || m.vp.YOffset() != y {
+				t.Fatalf("%s did not cancel at exact x/y", closer)
+			}
+		})
+	}
 
+	m := newRenderedModel(t, tocDoc, 80, 12)
+	m.vp.SetXOffset(9)
 	press(m, "o")
-	if !m.tocOpen || len(m.heads) != 3 {
-		t.Fatalf("o should open TOC with 3 heads, open=%v heads=%d", m.tocOpen, len(m.heads))
+	press(m, "j")
+	want := m.heads[1].line
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.tocOpen || m.vp.YOffset() != want || m.vp.XOffset() != 0 {
+		t.Fatalf("Enter did not commit preview: open=%v x/y=%d/%d want y=%d", m.tocOpen, m.vp.XOffset(), m.vp.YOffset(), want)
 	}
-	if m.tocSel != 0 {
-		t.Fatal("selection starts at first heading")
-	}
+}
 
-	yBefore := m.vp.YOffset()
-	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.tocOpen || m.vp.YOffset() != yBefore {
-		t.Fatal("esc closes without moving")
-	}
-
+func TestTOCFilterAndEscLadder(t *testing.T) {
+	src := "# Alpha\n\n## [Install](https://example.com/install)\n\n### 中文配置\n\n## Usage\n"
+	m := newRenderedModel(t, src, 80, 14)
 	press(m, "o")
-	if m.tocSel != 0 {
-		t.Fatal("reopen restores selection")
+	press(m, "/")
+	for _, key := range []string{"q", "o"} {
+		press(m, key)
 	}
-	press(m, "j") // select Beta (mid-document, safely scrollable)
-	if m.tocSel != 1 {
-		t.Fatalf("j moves selection, got %d", m.tocSel)
+	if !m.tocPrompt || m.tocFilter != "qo" || !m.tocOpen {
+		t.Fatalf("q/o must be literal prompt input: prompt=%v filter=%q open=%v", m.tocPrompt, m.tocFilter, m.tocOpen)
+	}
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	typeQuery(m, "配置")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if m.tocFilter != "配" {
+		t.Fatalf("Backspace must remove one Unicode rune: %q", m.tocFilter)
+	}
+	typeQuery(m, "置")
+	if m.tocSel != 2 || !m.tocPreview || len(m.filteredHeadings()) != 1 {
+		t.Fatalf("Unicode filter fallback sel=%d preview=%v heads=%v", m.tocSel, m.tocPreview, m.filteredHeadings())
 	}
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.tocPrompt || m.tocFilter != "配置" {
+		t.Fatal("Enter must retain the filter and leave the prompt")
+	}
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if !m.tocOpen || m.tocFilter != "" {
+		t.Fatal("first Esc clears retained filter")
+	}
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.tocOpen {
-		t.Fatal("enter closes overlay")
-	}
-	if want := m.heads[1].line; m.vp.YOffset() != want {
-		t.Fatalf("enter jumped to %d, want %d", m.vp.YOffset(), want)
-	}
-	if got := m.currentSection(); got != 1 {
-		t.Fatalf("after jump current section %d, want 1", got)
+		t.Fatal("second Esc closes outline")
 	}
 
-	top := m.vp.YOffset()
 	press(m, "o")
-	if m.tocSel != 1 {
-		t.Fatal("selection persists across close/reopen")
+	press(m, "G")
+	gamma := m.tocSel
+	press(m, "/")
+	typeQuery(m, "missing")
+	if m.tocSel != gamma || !strings.Contains(ansi.Strip(strings.Join(m.tocRows(), "\n")), "No matching headings") {
+		t.Fatal("zero-match filter must preserve the underlying selection and show an empty state")
 	}
-	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // close without moving
-	if m.vp.YOffset() != top {
-		t.Fatal("close preserves reading position")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter}) // leave prompt, keep zero results
+	press(m, "j")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.tocOpen || m.tocSel != gamma {
+		t.Fatal("movement and Enter must be no-ops with zero matches")
+	}
+	press(m, "/")
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.tocFilter != "" || m.tocPrompt || !m.tocOpen || m.tocSel != gamma {
+		t.Fatal("prompt Esc must restore the prior selection and retain outline")
+	}
+	wantGamma := min(m.heads[gamma].line, max(0, len(m.stripped)-m.vp.Height()))
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.tocOpen || m.vp.YOffset() != wantGamma {
+		t.Fatal("Enter after clearing a zero-result filter must commit the prior heading")
 	}
 
-	m2 := newRenderedModel(t, "no headings here\n", 60, 10)
-	press(m2, "o")
-	if m2.tocOpen {
-		t.Fatal("o without headings must not open overlay")
+	preserve := newRenderedModel(t, src, 80, 14)
+	preserve.vp.SetYOffset(preserve.heads[1].line)
+	press(preserve, "o")
+	preserve.setTOCFilter("install")
+	if preserve.tocSel != 1 {
+		t.Fatalf("filter must preserve a still-matching selection: %d", preserve.tocSel)
+	}
+	preserve.setTOCFilter("example.com")
+	if len(preserve.filteredHeadings()) != 0 {
+		t.Fatal("title-only filter must not match a linked heading URL")
 	}
 }
 
-func TestTOCSwallowsUnboundKeys(t *testing.T) {
-	m := newRenderedModel(t, tocDoc, 60, 10)
+func TestTOCFilterPromptTreatsGKeysAsText(t *testing.T) {
+	m := newRenderedModel(t, "# Alpha\n\n## gG Selected\n\n## Omega\n", 80, 14)
 	press(m, "o")
-	yBefore, xBefore := m.vp.YOffset(), m.vp.XOffset()
-	for _, key := range []string{"d", "u", "f", "b", " ", "w", "T", "/", "?", "n", "N"} {
-		if cmd := press(m, key); cmd != nil {
-			t.Errorf("%q under open TOC returned a command", key)
+	m.tocSel = 1
+	m.tocPreview = false
+	press(m, "/")
+	selected, preview := m.tocSel, m.tocPreview
+
+	for _, tc := range []struct {
+		key  tea.KeyPressMsg
+		want string
+	}{
+		{tea.KeyPressMsg{Code: 'g', Text: "g"}, "g"},
+		{tea.KeyPressMsg{Code: 'G', Text: "G"}, "gG"},
+	} {
+		pressKey(m, tc.key)
+		if m.tocFilter != tc.want {
+			t.Fatalf("filter=%q, want literal %q", m.tocFilter, tc.want)
 		}
-		if !m.tocOpen {
-			t.Fatalf("%q disturbed overlay state", key)
+		if m.tocSel != selected || m.tocPreview != preview {
+			t.Fatalf("g/G prompt input moved selection or preview: sel=%d preview=%v, want %d/%v",
+				m.tocSel, m.tocPreview, selected, preview)
 		}
-		if m.vp.YOffset() != yBefore || m.vp.XOffset() != xBefore {
-			t.Fatalf("%q moved the viewport", key)
-		}
-	}
-	if m.collapsed || m.search.active || m.search.query != "" {
-		t.Error("mode/search state changed under open TOC")
-	}
-	press(m, "k")
-	if m.tocSel != 0 {
-		t.Errorf("k at top must clamp selection: got %d, want 0", m.tocSel)
 	}
 }
 
-func TestTOCRowsAndTruncation(t *testing.T) {
-	m := newRenderedModel(t, tocDoc, 60, 10)
-	pw := m.tocPanelWidth()
-	if pw != 40 {
-		t.Fatalf("panel width %d, want min(40, 56)=40", pw)
-	}
-	long := "## " + strings.Repeat("中文🎉", 30) + "\n\ntext\n"
-	m2 := newRenderedModel(t, long, 30, 8)
-	pw2 := m2.tocPanelWidth()
-	rows := m2.tocRows(pw2, 8)
-	found := false
-	for _, r := range rows {
-		if r == "" {
-			continue
-		}
-		if w := ansi.StringWidth(r); w > pw2 {
-			t.Fatalf("row width %d exceeds panel %d: %q", w, pw2, ansi.Strip(r))
-		}
-		if strings.Contains(ansi.Strip(strings.TrimRight(r, " ")), "…") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("long heading should truncate with ellipsis")
+func TestTOCMovementSourcesUsePreviewHelper(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start int
+		key   tea.KeyPressMsg
+		want  int
+	}{
+		{"j", 0, keyMsg("j"), 1},
+		{"down", 0, tea.KeyPressMsg{Code: tea.KeyDown}, 1},
+		{"k", 2, keyMsg("k"), 1},
+		{"up", 2, tea.KeyPressMsg{Code: tea.KeyUp}, 1},
+		{"g", 2, keyMsg("g"), 0},
+		{"G", 0, keyMsg("G"), 2},
+		{"home", 2, tea.KeyPressMsg{Code: tea.KeyHome}, 0},
+		{"end", 0, tea.KeyPressMsg{Code: tea.KeyEnd}, 2},
+		{"page down", 0, tea.KeyPressMsg{Code: tea.KeyPgDown}, 2},
+		{"page up", 2, tea.KeyPressMsg{Code: tea.KeyPgUp}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRenderedModel(t, tocDoc, 60, 10)
+			m.vp.SetYOffset(m.heads[tc.start].line)
+			x, y := m.vp.XOffset(), m.vp.YOffset()
+			press(m, "o")
+			pressKey(m, tc.key)
+			if m.tocSel != tc.want || !m.tocPreview {
+				t.Fatalf("sel=%d preview=%v want=%d", m.tocSel, m.tocPreview, tc.want)
+			}
+			if m.vp.XOffset() != x || m.vp.YOffset() != y {
+				t.Fatal("movement mutated the real viewport")
+			}
+		})
 	}
 }
 
-func TestOverlayViewComposition(t *testing.T) {
-	m := newRenderedModel(t, tocDoc, 80, 12)
+func TestTOCHelpStyleGeometryAndTitles(t *testing.T) {
+	src := "## Root\n\n" + strings.Repeat("body\n\n", 8) +
+		"#### [Linked title](https://example.com/private)\n\n" + strings.Repeat("more\n\n", 8) +
+		"### " + strings.Repeat("中文🎉", 30) + "\n"
+	m := newRenderedModel(t, src, 60, 14)
+	m.vp.SetYOffset(m.heads[0].line)
 	press(m, "o")
-	v := m.View().Content
-	lines := strings.Split(v, "\n")
-	if n := len(lines); n < 2 {
-		t.Fatalf("view too short: %d lines", n)
+	before := m.tocRows()
+	plain := ansi.Strip(strings.Join(before, "\n"))
+	for _, want := range []string{"╭─ Outline", "Root", "Linked title", "of 3", "/ filter", "enter jump"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("outline modal lacks %q:\n%s", want, plain)
+		}
 	}
-	statusIdx := len(lines) - 1
-	if !strings.Contains(lines[statusIdx], "doc.md") {
-		t.Fatalf("status bar must stay visible: %q", lines[statusIdx])
+	if strings.Contains(plain, "example.com") {
+		t.Fatal("linked-heading URL leaked into title-only outline label")
 	}
-	body := strings.Join(lines[:statusIdx], "\n")
-	if !strings.Contains(ansi.Strip(body), "Alpha") || !strings.Contains(ansi.Strip(body), "Beta") {
-		t.Fatalf("overlay rows missing:\n%s", ansi.Strip(body))
+	if !strings.Contains(strings.Join(before, "\n"), "\x1b[36m") || !strings.Contains(strings.Join(before, "\n"), "\x1b[7m") {
+		t.Fatal("outline must use palette-cyan border and selected-row highlight")
 	}
-	sel := tocSelStyle.Render(strings.Repeat(" ", 40))
-	if !strings.Contains(body, ansi.Strip(sel)) && !strings.Contains(body, "\x1b[7m") {
-		t.Fatalf("selected row not highlighted:\n%q", body)
+	m.moveTOC(1)
+	styledRows := strings.Join(m.tocRows(), "\n")
+	if !strings.Contains(styledRows, "\x1b[1m") {
+		t.Fatalf("the original current heading must remain visually distinct during preview: %q", styledRows)
+	}
+	if !strings.Contains(plain, "    Linked title") {
+		t.Fatalf("heading indentation must be relative to shallowest level:\n%s", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Fatal("long Unicode title must truncate by display width")
+	}
+	for _, row := range before {
+		if ansi.StringWidth(row) != ansi.StringWidth(before[0]) {
+			t.Fatalf("row width %d differs from panel %d: %q", ansi.StringWidth(row), ansi.StringWidth(before[0]), ansi.Strip(row))
+		}
+		if ansi.StringWidth(row) > m.width {
+			t.Fatalf("outline row exceeds terminal: %q", ansi.Strip(row))
+		}
+	}
+	press(m, "/")
+	typeQuery(m, "Root")
+	after := m.tocRows()
+	if len(after) != len(before) || ansi.StringWidth(after[0]) != ansi.StringWidth(before[0]) {
+		t.Fatal("filtering resized the stable outline modal")
+	}
+}
+
+func TestTOCPreviewExposureAtRepresentativeHeights(t *testing.T) {
+	var src strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&src, "## Section %02d\n\nbody %02d\n\n", i, i)
+	}
+	for _, tc := range []struct {
+		height      int
+		wantVisible int
+	}{
+		{16, 5},
+		{24, 13},
+		{40, 20},
+	} {
+		t.Run(fmt.Sprintf("height %d", tc.height), func(t *testing.T) {
+			m := newRenderedModel(t, src.String(), 80, tc.height)
+			press(m, "o")
+			rows := m.tocRows()
+			if got := len(rows) - 2; got != tc.wantVisible {
+				t.Fatalf("visible rows=%d, want %d", got, tc.wantVisible)
+			}
+			bodyRows := m.vp.Height()
+			top := (bodyRows - len(rows)) / 2
+			bottom := bodyRows - top - len(rows)
+			if top < 4 || bottom < 4 {
+				t.Fatalf("preview exposure top/bottom=%d/%d, want at least 4 (body=%d panel=%d)", top, bottom, bodyRows, len(rows))
+			}
+		})
+	}
+}
+
+func TestTOCPreviewCommitAndCancelAcrossRepresentations(t *testing.T) {
+	doc := "# Alpha\n\n" + strings.Repeat("x", 200) + "\n\n" +
+		strings.Repeat("alpha body\n\n", 6) + "## Beta\n\n" +
+		strings.Repeat("beta body\n\n", 6) + "## Gamma\n\nfinal highlighted body\n"
+	for _, mode := range []string{"regular", "reader", "source"} {
+		for _, action := range []string{"cancel", "commit"} {
+			t.Run(mode+" "+action, func(t *testing.T) {
+				m := newRenderedModel(t, doc, 140, 16)
+				switch mode {
+				case "reader":
+					settle(t, m, press(m, "r"))
+				case "source":
+					press(m, "s")
+				}
+				m.vp.SetYOffset(m.heads[1].line)
+				m.vp.SetXOffset(7)
+				m.search.query = "final"
+				m.refreshSearch()
+				x, y := m.vp.XOffset(), m.vp.YOffset()
+				press(m, "o")
+				press(m, "G")
+				preview := m.tocPreviewBody()
+				if !strings.Contains(ansi.Strip(preview), "Gamma") || !strings.Contains(preview, curHL) {
+					t.Fatalf("%s preview must show Gamma with real search-highlight ANSI: %q", mode, preview)
+				}
+				if m.vp.XOffset() != x || m.vp.YOffset() != y || m.search.query != "final" {
+					t.Fatalf("%s preview mutated real state", mode)
+				}
+				wantY := min(m.heads[m.tocSel].line, max(0, len(m.stripped)-m.vp.Height()))
+				if action == "cancel" {
+					pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+					if m.tocOpen || m.vp.XOffset() != x || m.vp.YOffset() != y {
+						t.Fatalf("%s cancel x/y=%d/%d, want %d/%d", mode, m.vp.XOffset(), m.vp.YOffset(), x, y)
+					}
+					return
+				}
+				pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+				if m.tocOpen || m.vp.XOffset() != 0 || m.vp.YOffset() != wantY {
+					t.Fatalf("%s commit x/y=%d/%d, want 0/%d", mode, m.vp.XOffset(), m.vp.YOffset(), wantY)
+				}
+			})
+		}
+	}
+}
+
+func TestTOCCommitDuringResizeAnchorsToFreshHeadingLine(t *testing.T) {
+	m := newRenderedModel(t, tocDoc, 80, 16)
+	press(m, "o")
+	press(m, "G")
+	selected := m.tocSel
+
+	nm, resize := m.Update(tea.WindowSizeMsg{Width: 60, Height: 16})
+	*m = *nm.(*Model)
+	if resize == nil || !m.rendering || !m.tocOpen {
+		t.Fatalf("fitting resize must render behind the open outline: cmd=%v rendering=%v open=%v", resize, m.rendering, m.tocOpen)
+	}
+	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.tocOpen || m.anchor == nil {
+		t.Fatalf("commit during resize must close and install a heading anchor: open=%v anchor=%#v", m.tocOpen, m.anchor)
 	}
 
-	m.vp.SetYOffset(m.heads[1].line)
-	if got := m.currentSection(); got != 1 {
-		t.Fatalf("current section after scroll %d, want 1", got)
+	msg := resize().(renderedMsg)
+	at := msg.heads[selected].line
+	const shift = 4
+	for i := selected; i < len(msg.heads); i++ {
+		msg.heads[i].line += shift
 	}
-	m.vp.GotoTop()
-	if got := m.currentSection(); got != -1 {
-		t.Logf("current section at absolute top: %d (no heading above top yet)", got)
+	content := strings.Split(msg.content, "\n")
+	blanks := make([]string, shift)
+	content = append(content[:at], append(blanks, content[at:]...)...)
+	msg.content = strings.Join(content, "\n")
+	msg.stripped = append(msg.stripped[:at], append(blanks, msg.stripped[at:]...)...)
+	freshLine := msg.heads[selected].line
+
+	nm, _ = m.Update(msg)
+	*m = *nm.(*Model)
+	if m.vp.YOffset() != freshLine || m.anchor != nil {
+		t.Fatalf("completed resize landed at %d with anchor %#v, want fresh heading line %d", m.vp.YOffset(), m.anchor, freshLine)
+	}
+}
+
+func TestTOCRefusesTinyResizeAndReloadInvalidates(t *testing.T) {
+	fit := newRenderedModel(t, tocDoc, 60, 12)
+	press(fit, "o")
+	nm, resize := fit.Update(tea.WindowSizeMsg{Width: 50, Height: 10})
+	*fit = *nm.(*Model)
+	settle(t, fit, resize)
+	if !fit.tocOpen {
+		t.Fatal("outline must survive a resize while its modal still fits")
 	}
 
-	narrow := newRenderedModel(t, tocDoc, 24, 10)
-	press(narrow, "o")
-	v2 := narrow.View().Content
-	if !strings.Contains(v2, "Alpha") {
-		t.Fatal("narrow terminal should center panel and still show it")
+	for _, size := range []tea.WindowSizeMsg{{Width: 4, Height: 10}, {Width: 40, Height: 5}} {
+		m := newRenderedModel(t, tocDoc, 60, 12)
+		press(m, "o")
+		nm, _ := m.Update(size)
+		*m = *nm.(*Model)
+		if m.tocOpen {
+			t.Fatalf("outline remained open after too-small resize: %+v", size)
+		}
+	}
+	m := newRenderedModel(t, tocDoc, 60, 12)
+	press(m, "o")
+	nm, cmd := m.Update(reloadDoneMsg{body: []byte("# Fresh\n")})
+	*m = *nm.(*Model)
+	if cmd == nil || m.tocOpen {
+		t.Fatalf("accepted reload must synchronously invalidate outline: cmd=%v open=%v", cmd, m.tocOpen)
+	}
+}
+
+func TestTOCUnavailableDoesNotTrapInput(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+		w, h int
+	}{
+		{"no headings", "plain text\n", 60, 10},
+		{"too narrow", tocDoc, 4, 10},
+		{"too short", tocDoc, 40, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRenderedModel(t, tc.doc, tc.w, tc.h)
+			press(m, "o")
+			if m.tocOpen {
+				t.Fatal("outline opened without usable geometry/content")
+			}
+		})
 	}
 }
