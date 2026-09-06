@@ -72,15 +72,13 @@ func renderTable(node *extast.Table, source []byte, options glamansi.Options, id
 			multiline = multiline || strings.Contains(row[col], "\n")
 		}
 	}
-	border := lipgloss.NormalBorder()
+	border := lipgloss.RoundedBorder()
 	rules := options.Styles.Table
-	if rules.RowSeparator != nil && rules.ColumnSeparator != nil && rules.CenterSeparator != nil {
-		border.Top, border.Bottom = *rules.RowSeparator, *rules.RowSeparator
-		border.Left, border.Right, border.Middle = *rules.ColumnSeparator, *rules.ColumnSeparator, *rules.CenterSeparator
+	if rules.RowSeparator != nil && *rules.RowSeparator == "-" && rules.ColumnSeparator != nil && *rules.ColumnSeparator == "|" {
+		border = lipgloss.ASCIIBorder()
 	}
 	t := table.New().Headers(rows[0]...).Rows(rows[1:]...).Wrap(true).
-		Border(border).BorderTop(false).BorderBottom(false).
-		BorderLeft(false).BorderRight(false).BorderRow(multiline).
+		Border(border).BorderRow(multiline).
 		StyleFunc(func(_, col int) lipgloss.Style {
 			alignment := lipgloss.Left
 			switch node.Alignments[col] {

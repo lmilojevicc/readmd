@@ -144,16 +144,16 @@ func TestTableTabsBeforeMetricsReview(t *testing.T) {
 						t.Fatal(err)
 					}
 					lines := strings.Split(strings.Trim(ansi.Strip(out), "\n"), "\n")
-					if !strings.Contains(lines[0], strings.ReplaceAll(tc.header, "\t", "    ")) || !strings.Contains(lines[0], "Other") {
+					if !strings.Contains(lines[1], strings.ReplaceAll(tc.header, "\t", "    ")) || !strings.Contains(lines[1], "Other") {
 						t.Fatalf("broken header: %q", lines)
 					}
-					if len(lines) < 4 || !strings.Contains(lines[2], tc.want) {
+					if len(lines) < 6 || !strings.Contains(lines[3], tc.want) {
 						t.Fatalf("exact expanded cell missing: %q", lines)
 					}
-					if !tc.multiline && len(lines) != 4 {
+					if !tc.multiline && len(lines) != 6 {
 						t.Fatalf("short tab made extra rows: %q", lines)
 					}
-					if tc.multiline && strings.Count(strings.Join(lines, "\n"), lines[1]) != 2 {
+					if tc.multiline && strings.Count(strings.Join(lines[2:len(lines)-1], "\n"), lines[2]) != 2 {
 						t.Fatalf("missing logical row separator: %q", lines)
 					}
 					_, _, rows := tableGrid(t, out, 2)

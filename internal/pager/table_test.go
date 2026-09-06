@@ -28,21 +28,12 @@ func TestTablePublicAPIProof(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			grid := strings.Split(strings.TrimSpace(ansi.Strip(got)), "\n")
+			widths, _, reconstructed := tableGrid(t, got, 1)
 			for _, col := range []int{0, 2, 6} {
-				var words []string
-				for _, line := range grid[2:] {
-					cells := strings.Split(line, "│")
-					if len(cells) != 7 {
-						t.Fatalf("bad grid: %q", line)
-					}
-					words = append(words, strings.Fields(cells[col])...)
-				}
-				if strings.Join(words, " ") != prose {
-					t.Fatalf("column %d lost words: %q", col, words)
+				if reconstructed[0][col] != prose {
+					t.Fatalf("column %d lost words: %q", col, reconstructed[0][col])
 				}
 			}
-			widths, _, reconstructed := tableGrid(t, got, 1)
 			for _, col := range []int{1, 3, 5} {
 				if widths[col] != 3 || reconstructed[0][col] != []string{"x", "y", "z"}[(col-1)/2] {
 					t.Fatalf("tiny column %d: width=%d value=%q", col, widths[col], reconstructed[0][col])
@@ -74,40 +65,29 @@ func TestTablePublicAPIProof(t *testing.T) {
 // logical row/cell is reconstructed independently, including empty cells.
 func tableGrid(t *testing.T, out string, rowCount int) ([]int, []string, [][]string) {
 	t.Helper()
-	lines := strings.Split(strings.Trim(ansi.Strip(out), "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("missing grid: %q", out)
+	lines, separators := tableFrame(t, out)
+	widths := make([]int, len(separators)-1)
+	for i := range widths {
+		widths[i] = separators[i+1] - separators[i] - 1
 	}
-	rule := lines[1]
-	sep := "┼"
-	if !strings.Contains(rule, "─") {
-		sep = "|"
-	}
-	widths := []int{}
-	for i, part := range strings.Split(rule, sep) {
-		width := ansi.StringWidth(part)
-		if i == 0 {
-			width -= 2
-		}
-		widths = append(widths, width)
-	}
+	rule := lines[2]
 	cells := func(line string) []string {
 		result := make([]string, len(widths))
-		x := 2
 		for i, width := range widths {
+			x := separators[i] + 1
 			result[i] = strings.TrimSpace(ansi.Cut(line, x, x+width))
-			x += width + 1
 		}
 		return result
 	}
-	headers := cells(lines[0])
+	headers := cells(lines[1])
+	body := lines[3 : len(lines)-1]
 	multiline := false
-	for _, line := range lines[2:] {
+	for _, line := range body {
 		multiline = multiline || line == rule
 	}
 	var rows [][]string
 	current := make([]string, len(widths))
-	for _, line := range lines[2:] {
+	for _, line := range body {
 		if line == rule {
 			rows = append(rows, current)
 			current = make([]string, len(widths))
@@ -135,6 +115,62 @@ func tableGrid(t *testing.T, out string, rowCount int) ([]int, []string, [][]str
 		t.Fatalf("rows=%d want %d: %q", len(rows), rowCount, out)
 	}
 	return widths, headers, rows
+}
+
+// The cap has no cell text, so literal pipes/pluses in content cannot be
+// mistaken for rails. Positions include the actual document margin.
+func tableFrame(t *testing.T, out string) ([]string, []int) {
+	t.Helper()
+	lines := strings.Split(strings.Trim(ansi.Strip(out), "\n"), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("missing full frame: %q", out)
+	}
+	var separators []int
+	col := 0
+	for _, r := range lines[0] {
+		if strings.ContainsRune("╭┬╮+", r) {
+			separators = append(separators, col)
+		}
+		col += ansi.StringWidth(string(r))
+	}
+	if len(separators) < 2 {
+		t.Fatalf("missing cap junctions: %q", lines[0])
+	}
+	for _, line := range lines {
+		if ansi.StringWidth(line) != col {
+			t.Fatalf("unequal frame widths: %q vs %q", lines[0], line)
+		}
+	}
+	return lines, separators
+}
+
+// Compare stock content/geometry without requiring its old borderless frame.
+// Only recognized complete caps/rails are removed; content pipes stay intact.
+func withoutTableFrames(out string) string {
+	var result []string
+	lines := strings.Split(ansi.Strip(out), "\n")
+	left, right := -1, -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		rule := strings.HasPrefix(trimmed, "+-") && strings.HasSuffix(trimmed, "-+") && strings.Trim(trimmed, "+-") == ""
+		if left < 0 && rule {
+			left = ansi.StringWidth(line) - ansi.StringWidth(strings.TrimLeft(line, " "))
+			right = left + ansi.StringWidth(trimmed) - 1
+			continue
+		}
+		if left >= 0 {
+			if rule && (i+1 == len(lines) || !strings.HasPrefix(strings.TrimSpace(lines[i+1]), "|")) {
+				left, right = -1, -1
+				continue
+			}
+			line = ansi.Cut(line, 0, left) + ansi.Cut(line, left+1, right)
+			if rule {
+				line = strings.ReplaceAll(line, "+", "|")
+			}
+		}
+		result = append(result, line)
+	}
+	return trimTrailing(strings.Join(result, "\n"))
 }
 
 func markdownTable(headers []string, rows [][]string) string {
