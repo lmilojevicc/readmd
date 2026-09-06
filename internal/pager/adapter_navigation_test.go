@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestAdapterWrappedLinkTargets(t *testing.T) {
@@ -191,5 +192,145 @@ func TestAdapterLinkedHeadingMapping(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAdapterMultilineTableTargets(t *testing.T) {
+	dest := "https://example.org/full/path?query=complete&other=preserved"
+	label := "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu"
+	for _, width := range []int{40, 80, 120} {
+		for _, reader := range []bool{false, true} {
+			t.Run(fmt.Sprintf("w%d/reader=%v", width, reader), func(t *testing.T) {
+				linked := "[" + label + "][global]"
+				src := "[global]: " + dest + "\n\n" + markdownTable([]string{"Early", "N", "Middle", "Atomic", "Last"}, [][]string{
+					{linked, "x", "**" + linked + "**", strings.Repeat("endpoint", 9), linked},
+					{linked + " then " + linked, "y", "z", "id", "end"},
+				}) + "\nOutside [external][global].\n\n" + strings.Repeat("tail\n\n", 15)
+				m := newRenderedModel(t, src, width, 12)
+				if reader {
+					settle(t, m, press(m, "r"))
+				}
+				if len(m.links) != 6 {
+					t.Fatalf("logical links=%d want6: %#v", len(m.links), m.links)
+				}
+				original := strings.Join(m.base, "\n")
+				seen := map[string]bool{}
+				for _, link := range m.links {
+					if link.dest != dest {
+						t.Fatalf("lost destination: %#v", link)
+					}
+					if !strings.HasPrefix(link.id, tableLinkPrefix) {
+						continue
+					}
+					if seen[link.id] {
+						t.Fatal("repeated destinations merged")
+					}
+					seen[link.id] = true
+					if len(link.regions) < 4 {
+						t.Fatalf("wrapped regions=%#v", link.regions)
+					}
+					if strings.Join(strings.Fields(strings.Join(link.texts, " ")), " ") != label {
+						t.Fatalf("label reconstruction=%q", link.texts)
+					}
+					for _, reg := range link.regions {
+						text := ansi.Strip(ansi.Cut(m.base[reg.line], reg.start, reg.end))
+						if strings.ContainsAny(text, "│|") {
+							t.Fatalf("OSC hit includes table rail: %q", text)
+						}
+						m.vp.SetYOffset(reg.line)
+						m.vp.SetXOffset(reg.start + 1)
+						margin := 0
+						if reader {
+							_, margin = readerGeom(width, true)
+						}
+						opened := ""
+						m.openURL = func(s string) error { opened = s; return nil }
+						cmd := sendMouseClick(m, margin+reg.start+1-m.vp.XOffset(), reg.line-m.vp.YOffset())
+						if cmd == nil {
+							t.Fatalf("clipped/panned region not clickable: %#v", reg)
+						}
+						settle(t, m, cmd)
+						if opened != dest {
+							t.Fatalf("opened=%q", opened)
+						}
+						opened = ""
+						press(m, "t")
+						hint := ""
+						for _, target := range m.targets.targets {
+							if target.id == link.id {
+								hint = target.label
+							}
+						}
+						if hint == "" {
+							t.Fatalf("wrapped clipped link absent from hints: %#v", reg)
+						}
+						settle(t, m, press(m, strings.ToLower(hint)))
+						if opened != dest {
+							t.Fatalf("hint opened=%q", opened)
+						}
+					}
+				}
+				if len(seen) != 5 {
+					t.Fatalf("table occurrences=%d", len(seen))
+				}
+				if strings.Join(m.base, "\n") != original {
+					t.Fatal("mouse/hints mutated cache")
+				}
+				settle(t, m, press(m, "s"))
+				if !m.srcView || m.source != src {
+					t.Fatal("source representation changed raw document")
+				}
+				settle(t, m, press(m, "s"))
+				if strings.Join(m.base, "\n") != original || len(m.links) != 6 {
+					t.Fatal("source round trip changed render/targets")
+				}
+			})
+		}
+	}
+}
+
+func TestAdapterTableFootnoteNavigation(t *testing.T) {
+	for _, reader := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reader=%v", reader), func(t *testing.T) {
+			marker := "[^note]"
+			src := markdownTable([]string{"Narrative", "Other"}, [][]string{{strings.Repeat("ordinary readable explanation ", 7) + marker, "x"}, {"again" + marker, "y"}}) + "\n" + strings.Repeat("filler\n\n", 15) + marker + ": note body\n\n" + strings.Repeat("tail\n\n", 8)
+			m := newRenderedModel(t, src, 40, 10)
+			if reader {
+				settle(t, m, press(m, "r"))
+			}
+			if countFootnoteTargets(m.links) != 2 {
+				t.Fatalf("footnotes=%#v", m.links)
+			}
+			original := strings.Join(m.base, "\n")
+			for _, target := range m.links {
+				if target.kind != targetFootnote {
+					continue
+				}
+				reg := target.regions[0]
+				if ansi.Cut(m.stripped[reg.line], reg.start, reg.end) != marker {
+					t.Fatalf("marker hit=%#v", reg)
+				}
+				m.vp.SetYOffset(reg.line)
+				m.vp.SetXOffset(reg.start)
+				before := m.currentLocation()
+				margin := 0
+				if reader {
+					_, margin = readerGeom(m.width, true)
+				}
+				if cmd := sendMouseClick(m, margin+reg.start-m.vp.XOffset(), reg.line-m.vp.YOffset()); cmd != nil {
+					t.Fatal("footnote opened externally")
+				}
+				if m.vp.YOffset() != target.definition.line || len(m.locations) != 1 {
+					t.Fatal("footnote missed definition")
+				}
+				pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+				if m.currentLocation() != before {
+					t.Fatal("footnote return changed position")
+				}
+			}
+			if strings.Join(m.base, "\n") != original {
+				t.Fatal("footnote navigation changed cache")
+			}
+		})
 	}
 }

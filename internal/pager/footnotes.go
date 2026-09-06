@@ -18,6 +18,7 @@ var footnoteMD = goldmark.New(goldmark.WithExtensions(ext.GFM, ext.Footnote))
 
 type sourceFootnoteMarker struct {
 	label      string
+	cell       string
 	start      int
 	definition bool
 	reference  bool
@@ -88,7 +89,7 @@ func (m *Model) applyPendingLocation() {
 
 func renderedTargets(src string, base, stripped []string) []linkTarget {
 	links := suppressFootnoteReferenceLinks(parseRenderedLinkTargets(src, base), usedFootnoteLabels(src))
-	return append(links, parseFootnoteTargets(src, stripped)...)
+	return append(links, parseFootnoteTargets(src, base)...)
 }
 
 func usedFootnoteLabels(src string) map[string]bool {
@@ -121,6 +122,11 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 	if !ok || len(markers) == 0 {
 		return nil
 	}
+	cells := renderedTableCells(rendered)
+	stripped := make([]string, len(rendered))
+	for i, line := range rendered {
+		stripped[i] = ansi.Strip(line)
+	}
 	byLabel := map[string][]int{}
 	for i, marker := range markers {
 		byLabel[marker.label] = append(byLabel[marker.label], i)
@@ -141,13 +147,28 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 		if definition < 0 {
 			continue
 		}
-		regions := renderedFootnoteMarkers(rendered, label)
+		regions := renderedFootnoteMarkers(stripped, label)
 		if len(regions) != len(indexes) {
 			continue
 		}
+		// Table visual order is line-major, not source cell-major. Associate
+		// occurrences only within their source cell; prose keeps its old order.
+		byCell := map[string][][]targetRegion{}
+		for _, region := range regions {
+			cell := footnoteRegionCell(region, cells)
+			byCell[cell] = append(byCell[cell], region)
+		}
 		regionBySource := map[int][]targetRegion{}
-		for j, i := range indexes {
-			regionBySource[i] = regions[j]
+		for _, i := range indexes {
+			cell := markers[i].cell
+			if len(byCell[cell]) == 0 {
+				break
+			}
+			regionBySource[i] = byCell[cell][0]
+			byCell[cell] = byCell[cell][1:]
+		}
+		if len(regionBySource) != len(indexes) {
+			continue
 		}
 		defRegion := regionBySource[definition][0]
 		for _, i := range indexes {
@@ -228,6 +249,15 @@ func sourceFootnoteMarkers(src string) ([]sourceFootnoteMarker, bool) {
 		}
 	}
 	markers = filtered
+	cells := sourceTableCells(src)
+	for i := range markers {
+		for id, ranges := range cells {
+			if inSourceRanges(markers[i].start, ranges) {
+				markers[i].cell = id
+				break
+			}
+		}
+	}
 	var candidates []int
 	definitionCount := map[string]int{}
 	for i := range markers {

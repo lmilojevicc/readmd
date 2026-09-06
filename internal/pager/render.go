@@ -14,6 +14,7 @@ import (
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi/kitty"
 	"github.com/yuin/goldmark/ast"
+	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
@@ -262,6 +263,7 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 	})
 	var out bytes.Buffer
 	first := true
+	tableID := 0
 	for node := doc.FirstChild(); node != nil; {
 		next := node.NextSibling()
 		fragment := options
@@ -279,6 +281,17 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 		}
 		if next != nil {
 			fragment.Styles.Document.BlockSuffix = ""
+		}
+		if table, ok := node.(*extast.Table); ok {
+			rendered, err := renderTable(table, source, fragment, tableID)
+			if err != nil {
+				return "", err
+			}
+			out.WriteString(rendered)
+			tableID++
+			first = false
+			node = next
+			continue
 		}
 		root := ast.NewDocument()
 		root.AppendChild(root, node)

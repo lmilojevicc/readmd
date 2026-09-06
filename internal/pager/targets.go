@@ -122,8 +122,33 @@ func rawLinkRegions(lines []string) []rawLinkRegion {
 }
 
 func parseRenderedLinkTargets(src string, lines []string) []linkTarget {
-	raw := rawLinkRegions(lines)
-	layout := sourceLinkLayout(src)
+	var raw []rawLinkRegion
+	var tables []linkTarget
+	byIdentity := map[[2]string]int{}
+	for _, reg := range rawLinkRegions(lines) {
+		if !strings.HasPrefix(reg.id, tableLinkPrefix) {
+			raw = append(raw, reg)
+			continue
+		}
+		identity := [2]string{reg.id, reg.dest}
+		index, ok := byIdentity[identity]
+		if !ok {
+			index = len(tables)
+			byIdentity[identity] = index
+			tables = append(tables, linkTarget{id: reg.id, dest: reg.dest})
+		}
+		tables[index].regions = append(tables[index].regions, reg.targetRegion)
+		tables[index].texts = append(tables[index].texts, reg.text)
+	}
+	out := append(parseSourceLinkTargets(raw, sourceLinkLayout(src)), tables...)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].regions[0], out[j].regions[0]
+		return a.line < b.line || a.line == b.line && a.start < b.start
+	})
+	return out
+}
+
+func parseSourceLinkTargets(raw []rawLinkRegion, layout []sourceLink) []linkTarget {
 	if len(raw) == 0 || len(layout) == 0 {
 		return coalesceLinkRegions(raw)
 	}
@@ -137,7 +162,7 @@ func parseRenderedLinkTargets(src string, lines []string) []linkTarget {
 		target := linkTarget{id: first.id, dest: first.dest}
 		remaining := compactLinkText(source.text)
 		if source.table {
-			// Intrinsic table cells emit one OSC span, with a stock footnote
+			// Nested stock table cells emit one OSC span, with a stock footnote
 			// suffix rather than the prose label-plus-destination layout.
 			remaining = compactLinkText(first.text)
 		}
@@ -175,6 +200,9 @@ func sourceLinkLayout(src string) []sourceLink {
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
+		}
+		if n.Kind() == extast.KindTable && n.Parent().Kind() == ast.KindDocument {
+			return ast.WalkSkipChildren, nil
 		}
 		table := false
 		for p := n.Parent(); p != nil; p = p.Parent() {

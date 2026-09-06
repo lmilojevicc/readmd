@@ -35,7 +35,7 @@ func stockNatural(t *testing.T, src, style string) string {
 func TestAdapterIntrinsicContainersMatchStock(t *testing.T) {
 	wide := strings.Repeat("wide cell content ", 12)
 	for _, tc := range []struct{ name, src string }{
-		{"table", "| First | Last |\n| - | - |\n| " + wide + " | end |\n"},
+		{"list table", "- container\n\n  | First | Last |\n  | - | - |\n  | " + wide + " | end |\n"},
 		{"code", "```go\n// " + wide + "\n\nfmt.Println(\"last\")\n```\n"},
 		{"Mermaid", expandMermaid("```mermaid\nflowchart LR\nA[Alpha] --> B[Bravo] --> C[Charlie] --> D[Delta]\n```\n")},
 		{"list", "3. " + wide + "\n   - nested\n     - deepest\n4. last\n"},
@@ -162,12 +162,20 @@ func TestAdapterExactTableCells(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if out != baseline {
-					t.Fatalf("w%d grid differs from stock", w)
+				if tc.name != "clusters and long cell" && out != baseline {
+					t.Fatalf("w%d short grid differs from stock", w)
 				}
 				plain := ansi.Strip(out)
 				for _, cell := range tc.cells {
-					if !strings.Contains(plain, cell) {
+					content := plain
+					if tc.name == "clusters and long cell" {
+						_, _, rows := tableGrid(t, out, 1)
+						content = rows[0][0]
+						if cell == tc.cells[len(tc.cells)-1] {
+							content = rows[0][1]
+						}
+					}
+					if !strings.Contains(content, cell) {
 						t.Fatalf("w%d lost exact cell %q: %q", w, cell, plain)
 					}
 				}
@@ -177,7 +185,7 @@ func TestAdapterExactTableCells(t *testing.T) {
 					}
 				}
 			}
-			t.Logf("exact cell tokens and baseline grid, width %d", widestLine(splitStrip(baseline)))
+			t.Logf("exact cell tokens; stock baseline width %d", widestLine(splitStrip(baseline)))
 		})
 	}
 }
@@ -194,7 +202,14 @@ func TestAdapterMixedGeometry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, block := range []string{table, code, expandMermaid(mermaid)} {
+			tableOut, err := Render(table, w)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out, strings.Trim(tableOut, "\n")) {
+				t.Fatal("composed output lost bounded table")
+			}
+			for _, block := range []string{code, expandMermaid(mermaid)} {
 				want := strings.Trim(stockNatural(t, block, styles.NoTTYStyle), "\n")
 				if !strings.Contains(out, want) {
 					t.Fatalf("w%d composed output lost complete stock block %q", w, want)

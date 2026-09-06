@@ -2,8 +2,9 @@
 
 A pager-style terminal markdown reader. Its one goal: make **any** markdown
 file readable in a terminal — especially the wide GFM tables that other
-renderers mangle — without reimplementing markdown. Rendering is glamour,
-parsing is goldmark; this project is the frontend.
+renderers mangle — without reimplementing Markdown parsing. Goldmark parses; stock Glamour
+renders blocks and inline formatting, with a public-API Lipgloss adapter for
+top-level tables.
 
 ```
 go build -o readmd . && ./readmd example.md
@@ -12,11 +13,13 @@ go build -o readmd . && ./readmd example.md
 ## Why
 
 - **Prose wraps; structural blocks pan.** Top-level paragraphs and headings
-  use stock Glamour wrapping at the viewport width. Tables, code/Mermaid,
-  whole lists, blockquotes, and definition lists keep their natural width,
-  including prose inside those containers. Table cells have **no width cap**.
-  `r` switches to a centered, natural-width pannable reader viewport (up to
-  120 columns); it does not reflow the document.
+  use stock Glamour wrapping at the viewport width. Top-level table body cells
+  soft-wrap at whitespace around **40 display columns per column**. Complete
+  headers and unbreakable tokens set the minimum width; short columns stay
+  compact. Tables can still exceed the viewport: use `h`/`l`/`0` to pan.
+  Code/Mermaid, whole lists, blockquotes, and definition lists retain natural
+  width. `r` centers a pannable reader viewport (up to 120 columns), with
+  natural-width prose and the same table-cell wrapping.
 - **GitHub-style callouts** (`> [!NOTE]`) get a per-type colored rail and icon
   title, nvim render-markdown style.
 - **Terminal-adaptive color**: the default theme is built purely from your
@@ -90,7 +93,15 @@ hard breaks survive; soft source line breaks flow as spaces. Search remains
 line-local, so phrases spanning a wrap boundary do not match. Reader or source
 view can be used to inspect an unbroken token. GFM table parsing rules still
 apply: escape pipes even inside inline code, and cells beyond the header count
-are discarded by Goldmark. There is no wrap-mode toggle or table-records mode.
+are discarded by Goldmark. Table IDs, endpoints, URLs, hyphenated tokens, CJK
+runs and grapheme clusters never split to meet the preferred width. Multiline
+tables add row rules so neighboring records remain distinguishable. Table links
+show their formatted label with the full OSC 8 target, without repeated visible
+URLs or numbered link footers; bare/autolink URLs remain visible.
+
+Only **top-level tables** use this policy. Tables nested in lists or blockquotes
+stay on stock Glamour with their complete container and do not soft-wrap cells.
+Source view remains raw. There is no wrap-mode toggle or table-records mode.
 
 ## Development
 

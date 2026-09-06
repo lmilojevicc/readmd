@@ -1,6 +1,6 @@
 # readmd
 
-Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file readable in a terminal — especially wide GFM tables — WITHOUT reimplementing markdown parsing/rendering (glamour renders, goldmark parses; our code is the frontend).
+Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file readable in a terminal — especially wide GFM tables — WITHOUT reimplementing Markdown parsing (Goldmark parses; stock Glamour renders all blocks except top-level tables, which use its public inline elements and the Lipgloss table API).
 
 ## Commands
 
@@ -14,7 +14,7 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 
 - Charm stack **v2** module paths (`charm.land/bubbletea/v2`, `bubbles/v2`, `lipgloss/v2`, `glamour/v2`). Fall back to v1 paths ONLY if a v2 API is verifiably broken; record the deviation in the commit/report.
 - Theme: default `--style auto` = palette-adaptive ANSI-index style that follows the terminal's own 16-color theme (starship-like: zero hex/truecolor, zero painted backgrounds); `--style dark|light|notty` opts into glamour's fixed hex/attribute-only styles. (changed by user request after phase 1, refined again after first color attempt)
-- NO hardcoded max-width clamp on structural content (glow's #942 mistake). Normal view wraps only top-level paragraphs/headings with stock Glamour at viewport width; tables, code/Mermaid, whole lists, blockquotes and definition lists render at intrinsic width and pan. Reader renders everything at natural width. Table cells have no automatic width cap.
+- NO hardcoded max-width clamp on structural content (glow's #942 mistake). Normal view wraps top-level paragraphs/headings with stock Glamour at viewport width; code/Mermaid, whole lists, blockquotes and definition lists render at intrinsic width and pan. Top-level table body cells soft-wrap at whitespace around 40 display columns, independently per column, with complete headers and longest unbreakable tokens as width floors. Short columns stay compact; tables never shrink to the viewport. Reader keeps prose natural-width and uses the same table-cell policy. Nested tables remain on stock Glamour with their complete containers, without cell wrapping.
 - goldmark (already a glamour dependency) is the AST source for TOC/positions. glamour does NOT map AST nodes → rendered lines; use the markdown-space preprocessing technique instead (see below).
 
 ## Architecture rules
@@ -22,8 +22,8 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 - Cache the RAW markdown source. On resize / reader-toggle / reload, re-render FROM SOURCE. Never transform cached ANSI strings.
 - Render off the UI thread in a `tea.Cmd`; the viewport model owns scrolling.
 - Horizontal scroll offsets are stored in display COLUMNS, sliced grapheme-aware — never byte or rune counts (CJK/emoji correctness).
-- Wide tables retain their natural width with whole-document horizontal pan. There is no wrap-mode toggle or table-records mode.
-- Preprocessing transforms happen in MARKDOWN SPACE (parse with goldmark → rewrite source ranges → re-render). The no-fork adapter may compose freshly rendered top-level AST units after global parsing, then run postprocessing and collect global metadata; never mutate cached ANSI.
+- Wide tables retain their intrinsic column widths with whole-document horizontal pan. There is no wrap-mode toggle or table-records mode.
+- Preprocessing transforms happen in MARKDOWN SPACE (parse with goldmark → rewrite source ranges → re-render). The no-fork adapter may compose freshly rendered top-level AST units after global parsing, then run postprocessing and collect global metadata; never mutate cached ANSI. The bounded top-level-table adapter owns table layout via public Lipgloss APIs and cell formatting via public Glamour inline elements; no custom inline Markdown parser. Table links use label-only OSC 8 (autolinks retain their visible URL), without stock table link footers; unique occurrence IDs preserve multiline hit regions.
 - Code blocks never silently reflow.
 - Links always OSC 8 with full URL preserved as target.
 
