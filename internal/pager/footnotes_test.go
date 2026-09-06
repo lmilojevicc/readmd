@@ -188,7 +188,7 @@ func TestFootnoteHintJumpAndBack(t *testing.T) {
 	}
 	before := m.currentLocation()
 	base := append([]string(nil), m.base...)
-	press(m, "t")
+	press(m, "p")
 	if !m.targets.active || len(m.targets.targets) != 1 || !strings.Contains(m.hintStrip(), "footnote:note") {
 		t.Fatalf("footnote hint missing: active=%v targets=%#v strip=%q", m.targets.active, m.targets.targets, m.hintStrip())
 	}
@@ -221,7 +221,7 @@ func TestFootnoteReaderJumpRestoresMarginAndOffset(t *testing.T) {
 	settle(t, m, press(m, "r"))
 	m.vp.SetXOffset(30)
 	before := m.currentLocation()
-	press(m, "t")
+	press(m, "p")
 	if len(m.targets.targets) != 1 {
 		t.Fatalf("panned reader must expose footnote: %#v", m.targets.targets)
 	}
@@ -296,7 +296,7 @@ func TestFootnoteTargetsRecomputeAcrossReaderAndSource(t *testing.T) {
 	if m.srcView && len(m.links) != 0 {
 		t.Fatalf("source view must invalidate targets: %#v", m.links)
 	}
-	press(m, "t")
+	press(m, "p")
 	if m.targets.active || m.flash != "targets unavailable" {
 		t.Fatalf("source target mode active=%v flash=%q", m.targets.active, m.flash)
 	}
@@ -446,7 +446,7 @@ func TestWrappedFootnoteRegionsNavigate(t *testing.T) {
 					if m.currentLocation() != before {
 						t.Fatal("fragment mouse Backspace did not restore location")
 					}
-					press(m, "t")
+					press(m, "p")
 					if !m.targets.active {
 						t.Fatal("fragment lacks keyboard hint")
 					}

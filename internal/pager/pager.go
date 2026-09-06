@@ -276,7 +276,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		m.openSearch()
 	case "?":
 		m.toggleHelp()
-	case "t":
+	case "p":
 		m.openTargets()
 	case "m":
 		m.mouse = !m.mouse

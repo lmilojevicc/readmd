@@ -196,6 +196,109 @@ func linkLine(id, dest, text string) string {
 	return osc8("id="+id, dest, text, "\x1b\\")
 }
 
+func TestTargetModeEntryKey(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		open bool
+	}{
+		{"p", true},
+		{"t", false},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			m := newHintModel(t, 60, 12, []string{linkLine("one", "https://one.example", "link")})
+			before, height, location := m.View().Content, m.vp.Height(), m.currentLocation()
+			if cmd := press(m, tc.key); cmd != nil {
+				t.Fatal("entry key must not return a command")
+			}
+			if m.targets.active != tc.open || m.currentLocation() != location || m.flash != "" || m.errMsg != "" {
+				t.Fatalf("key %q: active=%v location=%#v flash=%q error=%q", tc.key, m.targets.active, m.currentLocation(), m.flash, m.errMsg)
+			}
+			if tc.open {
+				if len(m.targets.targets) != 1 || m.vp.Height() != height-1 {
+					t.Fatal("p must open the visible target and reserve the hint strip")
+				}
+			} else if m.View().Content != before || m.vp.Height() != height || len(m.targets.targets) != 0 || m.helpOpen || m.tocOpen || m.search.active {
+				t.Fatal("t must be a normal-mode no-op, not an alias")
+			}
+		})
+	}
+}
+
+func TestTargetModePromptAndOverlaySuppression(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		keys []string
+	}{
+		{"search", []string{"/"}},
+		{"help filter", []string{"?", "/"}},
+		{"outline filter", []string{"o", "/"}},
+		{"help", []string{"?"}},
+		{"outline", []string{"o"}},
+	} {
+		for _, key := range []string{"p", "t"} {
+			t.Run(tc.name+"/"+key, func(t *testing.T) {
+				m := newRenderedModel(t, "# Topic\n\n[link](https://one.example)\n", 60, 12)
+				for _, entry := range tc.keys {
+					press(m, entry)
+				}
+				location := m.currentLocation()
+				if cmd := press(m, key); cmd != nil || m.targets.active || m.currentLocation() != location {
+					t.Fatal("prompt/overlay must consume the key without opening hints or moving the document")
+				}
+				switch tc.name {
+				case "search":
+					if !m.search.active || m.search.query != key {
+						t.Fatal("search must retain literal input")
+					}
+				case "help filter":
+					if !m.helpOpen || !m.helpPrompt || m.helpFilter != key {
+						t.Fatal("help filter must retain literal input")
+					}
+				case "outline filter":
+					if !m.tocOpen || !m.tocPrompt || m.tocFilter != key {
+						t.Fatal("outline filter must retain literal input")
+					}
+				case "help":
+					if m.helpOpen {
+						t.Fatal("help must close without forwarding the key")
+					}
+				case "outline":
+					if !m.tocOpen {
+						t.Fatal("outline must remain open")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestTargetModeEntryKeysRemainHintLabels(t *testing.T) {
+	for _, key := range []string{"p", "t"} {
+		t.Run(key, func(t *testing.T) {
+			var lines []string
+			for i := range len(hintAlphabet) {
+				lines = append(lines, linkLine(fmt.Sprint(i), fmt.Sprintf("https://example.com/%d", i), "link"))
+			}
+			m := newHintModel(t, 60, 40, lines)
+			var opened string
+			m.openURL = func(dest string) error { opened = dest; return nil }
+			press(m, "p")
+			index := strings.Index(hintAlphabet, key)
+			if !m.targets.active || m.targets.targets[index].label != strings.ToUpper(key) {
+				t.Fatal("precondition: original hint alphabet must supply the label")
+			}
+			cmd := press(m, key)
+			if cmd == nil || m.targets.active {
+				t.Fatal("p/t must activate their labels, not reopen or ignore hints")
+			}
+			settle(t, m, cmd)
+			if want := fmt.Sprintf("https://example.com/%d", index); opened != want {
+				t.Fatalf("opened=%q want=%q", opened, want)
+			}
+		})
+	}
+}
+
 func TestTargetModeFreezesViewportAndRestoresHeight(t *testing.T) {
 	lines := []string{linkLine("one", "https://one.example", "one")}
 	for range 20 {
@@ -204,7 +307,7 @@ func TestTargetModeFreezesViewportAndRestoresHeight(t *testing.T) {
 	m := newHintModel(t, 40, 10, lines)
 	m.vp.SetYOffset(0)
 	savedHeight, savedX, savedY := m.vp.Height(), m.vp.XOffset(), m.vp.YOffset()
-	press(m, "t")
+	press(m, "p")
 	if !m.targets.active || m.vp.Height() != savedHeight-1 {
 		t.Fatalf("target mode state=%v height=%d", m.targets.active, m.vp.Height())
 	}
@@ -241,7 +344,7 @@ func TestTargetPrefixBackspaceAndActivation(t *testing.T) {
 		lines = append(lines, linkLine(string(rune('a'+i%20))+string(rune('A'+i)), "https://example.com/"+string(rune('a'+i)), "link"))
 	}
 	m := newHintModel(t, 200, 40, lines)
-	press(m, "t")
+	press(m, "p")
 	if len(m.targets.targets) != len(hintAlphabet)+1 || len(m.targets.targets[0].label) != 2 {
 		t.Fatalf("precondition: hints=%d first=%q", len(m.targets.targets), m.targets.targets[0].label)
 	}
@@ -279,7 +382,7 @@ func TestTargetModeVisibilityReaderAndOffsets(t *testing.T) {
 	m.syncVPWidth()
 	m.vp.SetXOffset(20)
 	m.vp.SetYOffset(1)
-	press(m, "t")
+	press(m, "p")
 	if len(m.targets.targets) != 1 {
 		t.Fatalf("reader viewport should expose only the panned right target, got %#v", m.targets.targets)
 	}
@@ -308,7 +411,7 @@ func TestTargetModeSuppressionAndSearchComposition(t *testing.T) {
 	m := newHintModel(t, 60, 12, []string{line})
 	m.search.query = "needle"
 	m.refreshSearch()
-	press(m, "t")
+	press(m, "p")
 	content := m.vp.GetContent()
 	if !strings.Contains(content, curHL) || !strings.Contains(content, targetHL) {
 		t.Fatalf("search and target highlights must compose: %q", content)
@@ -316,19 +419,19 @@ func TestTargetModeSuppressionAndSearchComposition(t *testing.T) {
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	m.search.active = true
-	press(m, "t")
-	if m.targets.active || m.search.query != "needlet" {
-		t.Fatal("active search must capture t instead of opening targets")
+	press(m, "p")
+	if m.targets.active || m.search.query != "needlep" {
+		t.Fatal("active search must capture p instead of opening targets")
 	}
 	m.search.active = false
 	m.tocOpen = true
-	press(m, "t")
+	press(m, "p")
 	if m.targets.active {
 		t.Fatal("TOC must suppress target mode")
 	}
 	m.tocOpen = false
 	m.helpOpen = true
-	press(m, "t")
+	press(m, "p")
 	if m.targets.active {
 		t.Fatal("help must suppress target mode")
 	}
@@ -346,7 +449,7 @@ func TestTargetModeUnavailableStates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newHintModel(t, 60, 12, []string{"plain text"})
 			tc.setup(m)
-			press(m, "t")
+			press(m, "p")
 			if m.targets.active || m.flash != tc.want {
 				t.Fatalf("active=%v flash=%q want=%q", m.targets.active, m.flash, tc.want)
 			}
@@ -359,7 +462,7 @@ func TestTargetReloadInvalidatesFrozenMetadata(t *testing.T) {
 	m.source = "[old](https://old.example)\n"
 	opened := false
 	m.openURL = func(string) error { opened = true; return nil }
-	press(m, "t")
+	press(m, "p")
 	if !m.targets.active || len(m.links) != 1 {
 		t.Fatal("precondition: old target mode must be active")
 	}
@@ -434,7 +537,7 @@ func TestExternalURLCommandUsesOneArgument(t *testing.T) {
 func TestTargetActivationReportsOpenerFailure(t *testing.T) {
 	m := newHintModel(t, 60, 12, []string{linkLine("x", "https://example.com", "x")})
 	m.openURL = func(string) error { return errors.New("boom") }
-	press(m, "t")
+	press(m, "p")
 	cmd := pressKey(m, tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd == nil {
 		t.Fatal("valid external URL must invoke the opener command")
@@ -460,7 +563,7 @@ func TestTargetActivationRefusesDeferredDestinations(t *testing.T) {
 			m := newHintModel(t, 60, 12, []string{linkLine("x", tc.dest, "x")})
 			called := false
 			m.openURL = func(string) error { called = true; return errors.New("must not run") }
-			press(m, "t")
+			press(m, "p")
 			cmd := pressKey(m, tea.KeyPressMsg{Code: 'a', Text: "a"})
 			if cmd != nil || called || m.flash != tc.want {
 				t.Fatalf("cmd=%v called=%v flash=%q want=%q", cmd, called, m.flash, tc.want)

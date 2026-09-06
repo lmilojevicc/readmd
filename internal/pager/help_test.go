@@ -333,7 +333,7 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 	switch key {
 	case "h", "l", "0":
 		m = newRenderedModel(t, "| "+strings.Repeat("x", 200)+" |\n| - |\n", 60, 12)
-	case "t":
+	case "p":
 		m = newRenderedModel(t, "[site](https://example.com)\n", 60, 12)
 	case "Backspace":
 		m.vp.SetYOffset(4)
@@ -411,10 +411,10 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 				t.Fatal("0 must reset pan")
 			}
 		}
-	case "t":
+	case "p":
 		press(m, key)
 		if !m.targets.active || len(m.targets.targets) != 1 {
-			t.Fatal("t must open visible target hints")
+			t.Fatal("p must open visible target hints")
 		}
 	case "Backspace":
 		pressKey(m, keyMsg(key))

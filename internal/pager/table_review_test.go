@@ -102,7 +102,7 @@ func TestTableLinkedBadgesReview(t *testing.T) {
 						t.Fatalf("mouse opened=%q", opened)
 					}
 					opened = ""
-					press(m, "t")
+					press(m, "p")
 					hint := ""
 					for _, h := range m.targets.targets {
 						if h.id == target.id {
@@ -207,7 +207,7 @@ func TestTableFootnoteCellOrderReview(t *testing.T) {
 						if m.currentLocation() != before {
 							t.Fatal("Backspace changed origin")
 						}
-						press(m, "t")
+						press(m, "p")
 						hint := ""
 						for _, h := range m.targets.targets {
 							if h.kind == targetFootnote {
@@ -299,7 +299,7 @@ func TestTableFootnoteInterleavedCellsReview(t *testing.T) {
 						if m.currentLocation() != before {
 							t.Fatal("Backspace changed reader/pan position")
 						}
-						press(m, "t")
+						press(m, "p")
 						hint := ""
 						for _, h := range m.targets.targets {
 							if reflect.DeepEqual(h.regions, target.regions) {
@@ -327,7 +327,7 @@ func TestTableFootnoteInterleavedCellsReview(t *testing.T) {
 							if cmd := sendMouseClick(m, margin+reg.start-m.vp.XOffset(), reg.line-m.vp.YOffset()); cmd != nil || len(m.locations) != 0 || before != m.currentLocation() {
 								t.Fatal("literal click activated a target")
 							}
-							press(m, "t")
+							press(m, "p")
 							for _, h := range m.targets.targets {
 								for _, hit := range h.regions {
 									if hit.line == reg.line && hit.start < reg.end && hit.end > reg.start {
@@ -401,7 +401,7 @@ func TestTableCellProvenancePreservesRealLinks(t *testing.T) {
 							t.Fatalf("mouse opened=%q", opened)
 						}
 						opened = ""
-						press(m, "t")
+						press(m, "p")
 						hint := ""
 						for _, h := range m.targets.targets {
 							if h.id == target.id {

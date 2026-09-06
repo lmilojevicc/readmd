@@ -209,7 +209,7 @@ func TestTableFrameNavigation(t *testing.T) {
 								t.Fatal("framed link click missed destination")
 							}
 							opened = ""
-							press(m, "t")
+							press(m, "p")
 							hint := ""
 							for _, h := range m.targets.targets {
 								if (target.kind == targetExternal && h.id == target.id) || (target.kind == targetFootnote && reflect.DeepEqual(h.regions, target.regions)) {

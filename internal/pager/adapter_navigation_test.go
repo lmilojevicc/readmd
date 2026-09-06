@@ -38,7 +38,7 @@ func TestAdapterWrappedLinkTargets(t *testing.T) {
 					}
 				}
 				m.vp.GotoTop()
-				press(m, "t")
+				press(m, "p")
 				if len(m.targets.targets) != 2 {
 					t.Fatalf("hints=%d", len(m.targets.targets))
 				}
@@ -254,7 +254,7 @@ func TestAdapterMultilineTableTargets(t *testing.T) {
 							t.Fatalf("opened=%q", opened)
 						}
 						opened = ""
-						press(m, "t")
+						press(m, "p")
 						hint := ""
 						for _, target := range m.targets.targets {
 							if target.id == link.id {

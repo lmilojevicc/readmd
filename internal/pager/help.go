@@ -34,7 +34,7 @@ var helpEntries = []helpEntry{
 	{"h", "pan left when wide", "Navigation"},
 	{"l", "pan right when wide", "Navigation"},
 	{"0", "reset horizontal pan", "Navigation"},
-	{"t", "fixed label; Esc; http(s)/mailto; files later", "Navigation"},
+	{"p", "pick link/reference; type label; Esc cancels", "Navigation"},
 	{"Backspace", "edit target / return footnote", "Navigation"},
 	{"m", "toggle mouse capture", "Modes"},
 	{"s", "rendered/source view", "Modes"},

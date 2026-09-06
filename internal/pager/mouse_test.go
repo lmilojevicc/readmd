@@ -192,7 +192,7 @@ func TestMouseHintStripAndFrozenDocument(t *testing.T) {
 	base := append([]string(nil), m.base...)
 	opened := 0
 	m.openURL = func(string) error { opened++; return nil }
-	press(m, "t")
+	press(m, "p")
 	beforeY := m.vp.YOffset()
 	hits := m.hintStripHits()
 	if len(hits) != 1 {
@@ -208,7 +208,7 @@ func TestMouseHintStripAndFrozenDocument(t *testing.T) {
 		}
 	}
 
-	press(m, "t")
+	press(m, "p")
 	sendMouseWheel(m, tea.MouseWheelDown)
 	if m.vp.YOffset() != beforeY {
 		t.Fatal("wheel moved the frozen target viewport")
@@ -241,7 +241,7 @@ func TestMouseHintStripRejectsTruncatedEntry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newHintModel(t, tc.width, 8, tc.lines)
 			m.openURL = func(string) error { t.Fatal("truncated strip entry opened"); return nil }
-			press(m, "t")
+			press(m, "p")
 			if hits := m.hintStripHits(); len(hits) != 0 {
 				t.Fatalf("truncated strip retained hit region: %#v strip=%q", hits, m.hintStrip())
 			}
@@ -286,7 +286,7 @@ func TestViewHeightAccountsForHintsAndOpenerFlashes(t *testing.T) {
 			m := newHintModel(t, 40, tc.height, tc.lines)
 			opened := 0
 			m.openURL = func(string) error { opened++; return nil }
-			press(m, "t")
+			press(m, "p")
 			if !m.targets.active || len(m.targets.targets) != 1 {
 				t.Fatalf("precondition: active=%v targets=%d", m.targets.active, len(m.targets.targets))
 			}

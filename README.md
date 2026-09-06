@@ -50,7 +50,7 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `j` `k` / `d` `u` / `ctrl+d` `ctrl+u` / `f` `b` `space` | line / half-page / page |
 | `g` `G` | top / bottom |
 | `h` `l` `0` | horizontal pan when content is wide, reset |
-| `t` | hint visible links and footnotes; type the fixed-width label, `Backspace` edits, `Esc` cancels |
+| `p` | pick visible links and footnote references; type the fixed-width label, `Backspace` edits, `Esc` cancels |
 | `m` | toggle mouse capture (enabled by default) |
 | `r` | centered 120-column reader viewport with horizontal panning |
 | `s` | toggle rendered / source view |
@@ -61,6 +61,8 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `c` | copy raw markdown to clipboard (OSC 52) |
 | `e` | edit in `$VISUAL`/`$EDITOR` at the nearest heading |
 | `q` `Esc` | quit (`Esc` first clears an active search) |
+
+Lowercase `t` is unbound in normal mode.
 
 ## Features
 
@@ -81,7 +83,7 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 - Images render through the kitty graphics protocol (kitty, ghostty, WezTerm)
   anchored to the text grid; everywhere else you get alt text. Remote images
   are fetched async and cached under `~/.cache/readmd/`.
-- Links are OSC 8 hyperlinks with the full URL preserved as target; `t` gives visible links and footnote references fixed-width keyboard hints. HTTP, HTTPS, and mailto targets open externally; relative and file navigation is deferred. In target mode, type the label, edit with `Backspace`, or cancel with `Esc`; in normal mode, `Backspace` returns from a footnote jump. Mouse capture is enabled by default: click a visible link or footnote reference, and use the wheel to scroll. `m` releases capture for terminal-native selection and scrolling. While capture is active, terminal-native selection commonly uses Shift and varies by emulator.
+- Links are OSC 8 hyperlinks with the full URL preserved as target; `p` gives visible links and footnote references fixed-width keyboard hints. HTTP, HTTPS, and mailto targets open externally; relative and file navigation is deferred. In target mode, type the label, edit with `Backspace`, or cancel with `Esc`; in normal mode, `Backspace` returns from a footnote jump. Mouse capture is enabled by default: click a visible link or footnote reference, and use the wheel to scroll. `m` releases capture for terminal-native selection and scrolling. While capture is active, terminal-native selection commonly uses Shift and varies by emulator.
 - Grapheme-correct widths throughout: CJK, emoji and combining marks never
   split or misalign columns.
 
