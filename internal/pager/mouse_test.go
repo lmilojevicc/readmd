@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 func sendMouseClick(m *Model, x, y int) tea.Cmd {
@@ -138,20 +137,32 @@ func TestMouseClickFootnoteJumpsAndPushesHistory(t *testing.T) {
 }
 
 func TestMouseHitTestingDisplayColumnsAndClipping(t *testing.T) {
-	family := "👨‍👩‍👧‍👦"
-	line := strings.Repeat("界", 8) + osc8("id=wide", "https://wide.example", family+"e\u0301", "\x1b\\") + strings.Repeat("z", 20)
-	m := newHintModel(t, 12, 8, []string{line})
-	reg := m.links[0].regions[0]
-	m.vp.SetXOffset(reg.start + 1)
-	var opened int
-	m.openURL = func(string) error { opened++; return nil }
-	cmd := sendMouseClick(m, 1, 0)
-	applyMouseCmd(m, cmd)
-	if opened != 1 {
-		t.Fatalf("partially clipped CJK/emoji target opened=%d region=%#v xoff=%d", opened, reg, m.vp.XOffset())
-	}
-	if cmd := sendMouseClick(m, 11, 0); cmd != nil || opened != 1 {
-		t.Fatal("click outside the visible target activated it")
+	for _, tc := range []struct {
+		name, tail string
+		safe       bool
+	}{
+		{"retained grapheme fits", "", true},
+		{"retained grapheme adds physical row", strings.Repeat("z", 20), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			family := "👨‍👩‍👧‍👦"
+			line := strings.Repeat("界", 8) + osc8("id=wide", "https://wide.example", family+"e\u0301", "\x1b\\") + tc.tail
+			m := newHintModel(t, 12, 8, []string{line, strings.Repeat("z", 50)})
+			reg := m.links[0].regions[0]
+			m.vp.SetXOffset(reg.start + 1)
+			var opened int
+			m.openURL = func(string) error { opened++; return nil }
+			applyMouseCmd(m, sendMouseClick(m, 1, 0))
+			if (opened == 1) != tc.safe {
+				t.Fatalf("opened=%d safe=%v", opened, tc.safe)
+			}
+			if !tc.safe && m.flash != targetPanNotice {
+				t.Fatal("unsafe pan lacks recovery notice")
+			}
+			if cmd := sendMouseClick(m, 11, 0); cmd != nil {
+				t.Fatal("click outside target activated")
+			}
+		})
 	}
 }
 
@@ -186,72 +197,6 @@ func TestMouseReaderMarginAndStatusRows(t *testing.T) {
 	}
 }
 
-func TestMouseHintStripAndFrozenDocument(t *testing.T) {
-	line := linkLine("one", "https://one.example", "link")
-	m := newHintModel(t, 60, 12, append([]string{line}, strings.Split(strings.Repeat("filler\n", 20), "\n")...))
-	base := append([]string(nil), m.base...)
-	opened := 0
-	m.openURL = func(string) error { opened++; return nil }
-	press(m, "p")
-	beforeY := m.vp.YOffset()
-	hits := m.hintStripHits()
-	if len(hits) != 1 {
-		t.Fatalf("hint hits=%#v strip=%q", hits, m.hintStrip())
-	}
-	applyMouseCmd(m, sendMouseClick(m, hits[0].start, m.vp.Height()))
-	if opened != 1 || m.targets.active {
-		t.Fatalf("strip activation opened=%d active=%v", opened, m.targets.active)
-	}
-	for i := range base {
-		if base[i] != m.base[i] {
-			t.Fatal("mouse hint activation mutated cached ANSI")
-		}
-	}
-
-	press(m, "p")
-	sendMouseWheel(m, tea.MouseWheelDown)
-	if m.vp.YOffset() != beforeY {
-		t.Fatal("wheel moved the frozen target viewport")
-	}
-	if cmd := sendMouseClick(m, m.width-1, m.vp.Height()); cmd != nil {
-		t.Fatal("hint strip outside an entry activated a target")
-	}
-	applyMouseCmd(m, sendMouseClick(m, 0, 0))
-	if opened != 2 || m.targets.active {
-		t.Fatalf("document token activation opened=%d active=%v", opened, m.targets.active)
-	}
-}
-
-func TestMouseHintStripRejectsTruncatedEntry(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		width int
-		lines []string
-	}{
-		{"single long entry", 8, []string{linkLine("one", "https://very-long.example/path", "link")}},
-		{
-			"ellipsis replaces final cell of otherwise fitting first entry",
-			ansi.StringWidth("A one.example"),
-			[]string{
-				linkLine("one", "https://one.example", "one"),
-				linkLine("two", "https://two.example", "two"),
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := newHintModel(t, tc.width, 8, tc.lines)
-			m.openURL = func(string) error { t.Fatal("truncated strip entry opened"); return nil }
-			press(m, "p")
-			if hits := m.hintStripHits(); len(hits) != 0 {
-				t.Fatalf("truncated strip retained hit region: %#v strip=%q", hits, m.hintStrip())
-			}
-			if cmd := sendMouseClick(m, 0, m.vp.Height()); cmd != nil || !m.targets.active {
-				t.Fatal("truncated hint strip click activated or closed target mode")
-			}
-		})
-	}
-}
-
 func TestViewHeightAccountsForHintsAndOpenerFlashes(t *testing.T) {
 	line := linkLine("one", "https://one.example", "one")
 	for _, tc := range []struct {
@@ -280,7 +225,7 @@ func TestViewHeightAccountsForHintsAndOpenerFlashes(t *testing.T) {
 		lines  []string
 	}{
 		{"narrow viewport", 3, []string{line, "filler", "filler"}},
-		{"target on bottom hint row", 5, []string{"filler", "filler", line, "filler"}},
+		{"target on bottom hint row", 5, []string{"filler", "filler", "filler", line}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newHintModel(t, 40, tc.height, tc.lines)
@@ -292,7 +237,7 @@ func TestViewHeightAccountsForHintsAndOpenerFlashes(t *testing.T) {
 			}
 			if tc.name == "target on bottom hint row" {
 				reg := m.targets.targets[0].regions[0]
-				if reg.line != m.vp.YOffset()+m.vp.Height()-1 {
+				if reg.line < m.vp.YOffset()+m.targetPanelY() {
 					t.Fatalf("precondition: target line=%d bottom=%d", reg.line, m.vp.YOffset()+m.vp.Height()-1)
 				}
 			}
@@ -304,7 +249,7 @@ func TestViewHeightAccountsForHintsAndOpenerFlashes(t *testing.T) {
 
 			nm, _ := m.Update(openedURLMsg{dest: "https://one.example"})
 			*m = *nm.(*Model)
-			if m.targets.active || m.flash == "" || m.vp.Height() != hintHeight {
+			if m.targets.active || m.flash == "" || m.vp.Height() != hintHeight-1 {
 				t.Fatalf("opener result state active=%v flash=%q viewport=%d want=%d", m.targets.active, m.flash, m.vp.Height(), hintHeight)
 			}
 			if got := len(strings.Split(m.View().Content, "\n")); got != m.height {

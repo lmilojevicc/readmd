@@ -127,6 +127,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case renderedMsg:
+		m.stopTargets(true)
 		m.rendering = false
 		if m.srcView {
 			return m, nil
@@ -149,13 +150,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(gfxCmd(msg.gfx.esc), m.fetchPending(msg.pending))
 
 	case docChangedMsg:
+		m.stopTargets(true)
 		cmd := m.reload()
 		return m, tea.Batch(cmd, m.waitForChange())
 
 	case reloadDoneMsg:
+		m.stopTargets(true)
 		return m, m.applyReload(msg)
 
 	case editedMsg:
+		m.stopTargets(true)
 		if msg.err != nil {
 			m.edited = false
 			m.errMsg = "edit: " + msg.err.Error()
@@ -180,15 +184,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleMouseClick(msg)
 
 	case tea.KeyMsg:
-		m.errMsg = ""
-		m.flash = ""
-		m.syncVPHeight()
 		if msg.String() == "ctrl+c" {
 			return m, m.quitCmd()
 		}
-		switch {
-		case m.targets.active:
+		if m.targets.active {
 			return m, m.handleTargetKey(msg)
+		}
+		// Snapshot before clearing an existing notice and exposing another row.
+		if msg.String() == "p" && !m.search.active && !m.tocOpen && !m.helpOpen && !m.srcView {
+			m.openTargets()
+			return m, nil
+		}
+		m.errMsg = ""
+		m.flash = ""
+		m.syncVPHeight()
+		switch {
 		case m.search.active:
 			return m, m.handleSearchKey(msg)
 		case m.tocOpen:
@@ -313,16 +323,12 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 func (m *Model) hStep() int { return max(8, m.width/10) }
 
 type viewChrome struct {
-	hint, notice, search bool
+	notice, search bool
 }
 
 func (m *Model) chrome() viewChrome {
 	remaining := max(0, m.height-1) // status always owns the last row
 	var c viewChrome
-	if m.targets.active && remaining > 0 {
-		c.hint = true
-		remaining--
-	}
 	if m.search.active && remaining > 0 {
 		c.search = true
 		remaining--
@@ -337,11 +343,12 @@ func (m *Model) syncVPHeight() {
 	if m.height <= 0 {
 		return
 	}
+	if m.targets.active {
+		m.vp.SetHeight(m.targets.savedHeight)
+		return
+	}
 	c := m.chrome()
 	rows := 1
-	if c.hint {
-		rows++
-	}
 	if c.notice {
 		rows++
 	}
@@ -392,6 +399,7 @@ func (m *Model) quitCmd() tea.Cmd {
 // in-flight render; if one is running, the stale result is discarded on
 // arrival and this is retried then.
 func (m *Model) requestRender() tea.Cmd {
+	m.stopTargets(true)
 	if m.srcView {
 		return nil
 	}
@@ -487,9 +495,6 @@ func (m *Model) View() tea.View {
 		}
 		rows = append(rows, body)
 	}
-	if chrome.hint {
-		rows = append(rows, m.hintStrip())
-	}
 	if chrome.notice {
 		if m.errMsg != "" {
 			rows = append(rows, ansi.Truncate(errStyle.Render(m.errMsg), m.width, "…"))
@@ -499,6 +504,9 @@ func (m *Model) View() tea.View {
 	}
 	if chrome.search {
 		rows = append(rows, m.searchPrompt())
+	}
+	if m.targets.active {
+		rows = []string{m.applyTargetPanel(strings.Join(rows, "\n"))}
 	}
 	rows = append(rows, m.statusBar())
 	v := tea.NewView(strings.Join(rows, "\n"))
@@ -514,6 +522,9 @@ func (m *Model) View() tea.View {
 // chip. The bar itself is transparent (terminal background). Narrowing drops
 // the help chip first, then the percent; the brand chip is never truncated.
 func (m *Model) statusBar() string {
+	if m.targets.active {
+		return m.targetStatus()
+	}
 	info := "render"
 	if m.srcView {
 		info = "source"

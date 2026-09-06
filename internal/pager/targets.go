@@ -20,7 +20,7 @@ import (
 
 const hintAlphabet = "asdfghjklqwertyuiopzxcvbnm"
 
-const targetHL = "\x1b[7m\x1b[4m"
+const targetHL = "\x1b[1m\x1b[4m"
 
 type targetRegion struct {
 	line       int
@@ -50,11 +50,17 @@ type hintTarget struct {
 }
 
 type targetMode struct {
-	active  bool
-	prefix  string
-	targets []hintTarget
-	savedX  int
-	savedY  int
+	active      bool
+	prefix      string
+	targets     []hintTarget
+	savedX      int
+	savedY      int
+	savedHeight int
+	focus       int
+	top         int
+	panelHeight int
+	detailPage  int
+	rows        []targetRowBounds
 }
 
 type openedURLMsg struct {
@@ -325,41 +331,36 @@ func hintLabels(n int) []string {
 	if n <= 0 {
 		return nil
 	}
-	base := len(hintAlphabet)
-	width := 1
-	if n > base {
-		width = 2
-	}
-	maxLabels := base
-	if width == 2 {
-		maxLabels *= base
-	}
-	if n > maxLabels {
-		n = maxLabels
+	base, width, capacity := len(hintAlphabet), 1, len(hintAlphabet)
+	for capacity < n {
+		width++
+		capacity *= base
 	}
 	out := make([]string, n)
 	for i := range n {
-		if width == 1 {
-			out[i] = strings.ToUpper(hintAlphabet[i : i+1])
-			continue
+		label, value := make([]byte, width), i
+		for j := width - 1; j >= 0; j-- {
+			label[j] = hintAlphabet[value%base]
+			value /= base
 		}
-		out[i] = strings.ToUpper(string([]byte{
-			hintAlphabet[(i/base)%base],
-			hintAlphabet[i%base],
-		}))
+		out[i] = strings.ToUpper(string(label))
 	}
 	return out
 }
 
-func visibleLinkTargets(links []linkTarget, x, y, width, height int) []linkTarget {
-	if width <= 0 || height <= 0 {
+func visibleLinkTargets(links []linkTarget, y int, rows []targetRowBounds) []linkTarget {
+	if len(rows) == 0 {
 		return nil
 	}
 	var out []linkTarget
 	for _, link := range links {
 		var visible []targetRegion
 		for _, reg := range link.regions {
-			if reg.line < y || reg.line >= y+height || reg.end <= x || reg.start >= x+width {
+			if reg.line < y || reg.line >= y+len(rows) {
+				continue
+			}
+			row := rows[reg.line-y]
+			if reg.end <= row.left || reg.start >= row.right {
 				continue
 			}
 			visible = append(visible, reg)
@@ -373,20 +374,25 @@ func visibleLinkTargets(links []linkTarget, x, y, width, height int) []linkTarge
 }
 
 func (m *Model) openTargets() {
-	if m.srcView || m.base == nil {
+	if m.srcView || m.base == nil || m.rendering {
 		m.flash = "targets unavailable"
 		return
 	}
-	if m.vp.Height() < 2 {
+	if m.vp.Height() < 1 || m.width < 30 {
 		m.flash = "not enough room for targets"
 		return
 	}
+	rows, safe := m.targetViewportRows()
+	if !safe {
+		m.errMsg, m.flash = "", targetPanNotice
+		return
+	}
 	savedX, savedY := m.vp.XOffset(), m.vp.YOffset()
-	m.targets = targetMode{active: true, savedX: savedX, savedY: savedY}
-	m.syncVPHeight()
-	m.vp.SetXOffset(savedX)
-	m.vp.SetYOffset(savedY)
-	links := visibleLinkTargets(m.links, savedX, savedY, m.vp.Width(), m.vp.Height())
+	m.targets = targetMode{active: true, savedX: savedX, savedY: savedY, savedHeight: m.vp.Height(), panelHeight: 1, rows: rows}
+	if m.vp.Height() >= 7 {
+		m.targets.panelHeight = min(10, m.vp.Height()-1)
+	}
+	links := visibleLinkTargets(m.links, savedY, rows)
 	sort.SliceStable(links, func(i, j int) bool {
 		a, b := links[i].regions[0], links[j].regions[0]
 		if a.line != b.line {
@@ -442,10 +448,34 @@ func (m *Model) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 	case "esc":
 		m.stopTargets(true)
 		return nil
+	case "tab", "down", "right":
+		m.moveTargetFocus(1)
+		return nil
+	case "shift+tab", "up", "left":
+		m.moveTargetFocus(-1)
+		return nil
+	case "pgdown":
+		m.moveTargetFocus(m.targetVisibleRows())
+		return nil
+	case "pgup":
+		m.moveTargetFocus(-m.targetVisibleRows())
+		return nil
+	case "ctrl+right", "ctrl+left":
+		delta := 1
+		if msg.String() == "ctrl+left" {
+			delta = -1
+		}
+		m.targets.detailPage = min(max(0, m.targets.detailPage+delta), m.targetDetailPageCount()-1)
+		return nil
+	case "enter":
+		if target, ok := m.focusedTarget(); ok {
+			return m.activateTarget(target)
+		}
+		return nil
 	case "backspace", "ctrl+h":
 		if r := []rune(m.targets.prefix); len(r) > 0 {
 			m.targets.prefix = string(r[:len(r)-1])
-			m.applySearchView()
+			m.resetTargetFocus()
 		}
 		return nil
 	}
@@ -458,8 +488,8 @@ func (m *Model) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	m.targets.prefix += string(r)
+	m.resetTargetFocus()
 	candidates := m.targetCandidates()
-	m.applySearchView()
 	if len(candidates) == 1 {
 		return m.activateTarget(candidates[0])
 	}
@@ -529,58 +559,6 @@ func externalURLCmd(goos, dest string) *exec.Cmd {
 	}
 }
 
-func (m *Model) hintStrip() string {
-	strip, _ := m.hintStripLayout()
-	return strip
-}
-
-func (m *Model) hintStripHits() []hintStripHit {
-	_, hits := m.hintStripLayout()
-	return hits
-}
-
-func (m *Model) hintStripLayout() (string, []hintStripHit) {
-	candidates := m.targetCandidates()
-	if len(candidates) == 0 {
-		return ansi.Truncate("targets: no match", m.width, "…"), nil
-	}
-	const separator = "    "
-	var b strings.Builder
-	var pending []hintStripHit
-	col := 0
-	for i, target := range candidates {
-		if i > 0 {
-			b.WriteString(separator)
-			col += ansi.StringWidth(separator)
-		}
-		part := target.label + " " + hintDescription(target)
-		start := col
-		b.WriteString(part)
-		col += ansi.StringWidth(part)
-		pending = append(pending, hintStripHit{start: start, end: col, target: target})
-	}
-	full := b.String()
-	strip := ansi.Truncate(full, m.width, "…")
-	limit := m.width
-	if ansi.StringWidth(full) > m.width {
-		limit = max(0, m.width-ansi.StringWidth("…"))
-	}
-	hits := pending[:0]
-	for _, hit := range pending {
-		if hit.end <= limit {
-			hits = append(hits, hit)
-		}
-	}
-	return strip, hits
-}
-
-func hintDescription(target hintTarget) string {
-	if target.kind == targetFootnote {
-		return "footnote:" + target.footnote
-	}
-	return targetDescription(target.dest)
-}
-
 func targetDescription(dest string) string {
 	u, err := url.Parse(dest)
 	if err != nil {
@@ -588,7 +566,14 @@ func targetDescription(dest string) string {
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
-		return u.Host + u.EscapedPath()
+		description := u.Host + u.EscapedPath()
+		if u.ForceQuery || u.RawQuery != "" {
+			description += "?" + u.RawQuery
+		}
+		if u.Fragment != "" {
+			description += "#" + u.EscapedFragment()
+		}
+		return description
 	case "mailto":
 		return strings.TrimPrefix(dest, "mailto:")
 	default:
@@ -601,7 +586,7 @@ func (m *Model) targetSpans() map[int][]span {
 		return nil
 	}
 	groups := map[int][]span{}
-	for _, target := range m.targetCandidates() {
+	if target, ok := m.focusedTarget(); ok {
 		for _, reg := range target.regions {
 			groups[reg.line] = append(groups[reg.line], span{reg.start, reg.end})
 		}

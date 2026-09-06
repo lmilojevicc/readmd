@@ -189,8 +189,8 @@ func TestFootnoteHintJumpAndBack(t *testing.T) {
 	before := m.currentLocation()
 	base := append([]string(nil), m.base...)
 	press(m, "p")
-	if !m.targets.active || len(m.targets.targets) != 1 || !strings.Contains(m.hintStrip(), "footnote:note") {
-		t.Fatalf("footnote hint missing: active=%v targets=%#v strip=%q", m.targets.active, m.targets.targets, m.hintStrip())
+	if !m.targets.active || len(m.targets.targets) != 1 || !strings.Contains(strings.Join(m.targetPanelRows(), "\n"), "footnote note") {
+		t.Fatalf("footnote hint missing: active=%v targets=%#v strip=%q", m.targets.active, m.targets.targets, strings.Join(m.targetPanelRows(), "\n"))
 	}
 	cmd := pressKey(m, tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd != nil || m.targets.active || len(m.locations) != 1 {

@@ -1,16 +1,63 @@
 package pager
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+)
 
 const mouseWheelStep = 3
+const targetPanNotice = "adjust pan or press 0 to pick targets"
 
-type hintStripHit struct {
-	start, end int
-	target     hintTarget
+type targetRowBounds struct{ left, right int }
+
+// Stock Cut retains a wide grapheme intersected by XOffset. Use its actual
+// origin, and decline target coordinates if the slice would wrap physically.
+func (m *Model) targetViewportRows() ([]targetRowBounds, bool) {
+	x, width := m.vp.XOffset(), m.vp.Width()
+	rows := make([]targetRowBounds, m.vp.Height())
+	for i := range rows {
+		line := m.vp.YOffset() + i
+		rows[i] = targetRowBounds{x, x}
+		if line >= len(m.base) {
+			continue
+		}
+		content := m.base[line]
+		cutWidth := ansi.StringWidth(ansi.Cut(content, x, x+width))
+		if cutWidth > width {
+			return nil, false
+		}
+		col, state := 0, byte(0)
+		for rest := content; rest != ""; {
+			_, w, n, next := ansi.DecodeSequence(rest, state, nil)
+			if n <= 0 {
+				break
+			}
+			if col+w > x {
+				break
+			}
+			col += w
+			state, rest = next, rest[n:]
+		}
+		rows[i] = targetRowBounds{col, col + cutWidth}
+	}
+	return rows, true
 }
 
 func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	if !m.mouse || m.targets.active || m.search.active {
+	if !m.mouse || m.search.active {
+		return nil
+	}
+	if m.targets.active {
+		switch msg.Button {
+		case tea.MouseWheelDown:
+			m.moveTargetFocus(mouseWheelStep)
+		case tea.MouseWheelUp:
+			m.moveTargetFocus(-mouseWheelStep)
+		case tea.MouseWheelRight:
+			m.moveTargetFocus(m.targetVisibleRows())
+		case tea.MouseWheelLeft:
+			m.moveTargetFocus(-m.targetVisibleRows())
+		}
 		return nil
 	}
 	step := mouseWheelStep
@@ -50,11 +97,9 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		m.search.active || m.tocOpen || m.helpOpen || m.srcView {
 		return nil
 	}
-	if m.targets.active && m.chrome().hint && msg.Y == m.vp.Height() {
-		for _, hit := range m.hintStripHits() {
-			if msg.X >= hit.start && msg.X < hit.end {
-				return m.activateTarget(hit.target)
-			}
+	if m.targets.active && msg.Y >= m.targetPanelY() {
+		if target, ok := m.targetPanelHit(msg.X, msg.Y); ok {
+			return m.activateTarget(target)
 		}
 		return nil
 	}
@@ -75,23 +120,35 @@ func (m *Model) mouseTargetAt(x, y int) (hintTarget, bool) {
 			return hintTarget{}, false
 		}
 	}
-	docX := m.vp.XOffset() + x - margin
+	rows := m.targets.rows
+	if !m.targets.active {
+		var safe bool
+		rows, safe = m.targetViewportRows()
+		if !safe {
+			m.errMsg, m.flash = "", targetPanNotice
+			return hintTarget{}, false
+		}
+	}
+	if y < 0 || y >= len(rows) || x < margin || x >= margin+m.vp.Width() {
+		return hintTarget{}, false
+	}
+	row := rows[y]
+	docX := row.left + x - margin
 	docY := m.vp.YOffset() + y
 	links := m.links
 	if m.targets.active {
-		candidates := m.targetCandidates()
+		candidates := m.targets.targets
 		links = make([]linkTarget, len(candidates))
 		for i := range candidates {
 			links[i] = candidates[i].linkTarget
 		}
 	}
-	left, right := m.vp.XOffset(), m.vp.XOffset()+m.vp.Width()
 	for _, target := range links {
 		for _, reg := range target.regions {
 			if reg.line != docY {
 				continue
 			}
-			visibleStart, visibleEnd := max(reg.start, left), min(reg.end, right)
+			visibleStart, visibleEnd := max(reg.start, row.left), min(reg.end, row.right)
 			if visibleStart < visibleEnd && docX >= visibleStart && docX < visibleEnd {
 				return hintTarget{linkTarget: target}, true
 			}

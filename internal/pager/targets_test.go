@@ -148,7 +148,7 @@ func TestVisibleLinkTargetsClipsViewport(t *testing.T) {
 		{id: "b", dest: "https://b", regions: []targetRegion{{2, 8, 14}, {8, 0, 3}}},
 		{id: "c", dest: "https://c", regions: []targetRegion{{3, 20, 25}}},
 	}
-	got := visibleLinkTargets(links, 10, 1, 10, 3)
+	got := visibleLinkTargets(links, 1, []targetRowBounds{{10, 20}, {10, 20}, {10, 20}})
 	if len(got) != 1 || got[0].id != "b" || len(got[0].regions) != 1 {
 		t.Fatalf("got %#v, want only clipped target b", got)
 	}
@@ -214,8 +214,8 @@ func TestTargetModeEntryKey(t *testing.T) {
 				t.Fatalf("key %q: active=%v location=%#v flash=%q error=%q", tc.key, m.targets.active, m.currentLocation(), m.flash, m.errMsg)
 			}
 			if tc.open {
-				if len(m.targets.targets) != 1 || m.vp.Height() != height-1 {
-					t.Fatal("p must open the visible target and reserve the hint strip")
+				if len(m.targets.targets) != 1 || m.vp.Height() != height {
+					t.Fatal("p must open the visible target and overlay without resizing the viewport")
 				}
 			} else if m.View().Content != before || m.vp.Height() != height || len(m.targets.targets) != 0 || m.helpOpen || m.tocOpen || m.search.active {
 				t.Fatal("t must be a normal-mode no-op, not an alias")
@@ -308,7 +308,7 @@ func TestTargetModeFreezesViewportAndRestoresHeight(t *testing.T) {
 	m.vp.SetYOffset(0)
 	savedHeight, savedX, savedY := m.vp.Height(), m.vp.XOffset(), m.vp.YOffset()
 	press(m, "p")
-	if !m.targets.active || m.vp.Height() != savedHeight-1 {
+	if !m.targets.active || m.vp.Height() != savedHeight {
 		t.Fatalf("target mode state=%v height=%d", m.targets.active, m.vp.Height())
 	}
 	before := append([]string(nil), m.base...)
@@ -316,12 +316,12 @@ func TestTargetModeFreezesViewportAndRestoresHeight(t *testing.T) {
 		t.Fatalf("target token lacks display-only highlight: %q", m.vp.GetContent())
 	}
 	viewLines := strings.Split(m.View().Content, "\n")
-	if len(viewLines) != m.height || !strings.Contains(viewLines[len(viewLines)-2], "A one.example") || !strings.Contains(viewLines[len(viewLines)-1], "links.md") {
-		t.Fatalf("hint strip must sit directly above status without growing the view: %#v", viewLines)
+	if len(viewLines) != m.height || !strings.Contains(ansi.Strip(m.View().Content), "one.example") || !strings.Contains(viewLines[len(viewLines)-1], "Tab/Enter/Esc") {
+		t.Fatalf("picker panel must sit directly above status without growing the view: %#v", viewLines)
 	}
 	press(m, "j")
 	press(m, "l")
-	if m.vp.XOffset() != savedX || m.vp.YOffset() != savedY || m.vp.Height() != savedHeight-1 {
+	if m.vp.XOffset() != savedX || m.vp.YOffset() != savedY || m.vp.Height() != savedHeight {
 		t.Fatal("navigation keys moved the frozen target viewport")
 	}
 	for i := range before {
@@ -392,7 +392,7 @@ func TestTargetModeVisibilityReaderAndOffsets(t *testing.T) {
 		}
 	}
 	found := false
-	for _, line := range strings.Split(m.View().Content, "\n") {
+	for _, line := range strings.Split(padMargin(m.vp.View(), 10), "\n") {
 		if !strings.Contains(line, targetHL) {
 			continue
 		}

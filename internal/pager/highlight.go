@@ -44,7 +44,7 @@ func (m *Model) applySearchView() {
 			l = highlightLine(l, g.sps, g.cur)
 		}
 		if sps := targets[i]; len(sps) > 0 {
-			l = highlightLineStyle(l, sps, -1, targetHL, targetHL)
+			l = highlightTargetLine(l, sps)
 		}
 		b.WriteString(l)
 		if i < len(m.base)-1 {
@@ -110,6 +110,43 @@ func highlightLineStyle(line string, sps []span, cur int, normal, current string
 	}
 	if in {
 		closeSpan()
+	}
+	return b.String()
+}
+
+// Focus attributes compose with stock link styling and existing search colors.
+func highlightTargetLine(line string, spans []span) string {
+	var b strings.Builder
+	var active []string
+	col, index, state, inside := 0, 0, byte(0), false
+	for rest := line; rest != ""; {
+		seq, width, n, next := ansi.DecodeSequence(rest, state, nil)
+		if n <= 0 {
+			break
+		}
+		state, rest = next, rest[n:]
+		if inside && col >= spans[index].end {
+			b.WriteString("\x1b[m" + strings.Join(active, ""))
+			inside = false
+			index++
+		}
+		if isSGR(seq) {
+			active = pushSGR(active, seq)
+			b.WriteString(seq)
+			if inside {
+				b.WriteString(targetHL)
+			}
+			continue
+		}
+		if !inside && index < len(spans) && col >= spans[index].start && width > 0 {
+			b.WriteString(targetHL)
+			inside = true
+		}
+		b.WriteString(seq)
+		col += width
+	}
+	if inside {
+		b.WriteString("\x1b[m" + strings.Join(active, ""))
 	}
 	return b.String()
 }
