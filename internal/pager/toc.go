@@ -2,6 +2,7 @@ package pager
 
 import (
 	"fmt"
+	"html"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -13,10 +14,11 @@ import (
 )
 
 type heading struct {
-	level   int
-	text    string
-	line    int
-	srcLine int
+	level        int
+	text         string
+	renderedText string
+	line         int
+	srcLine      int
 }
 
 func extractHeadings(src string) []heading {
@@ -37,22 +39,24 @@ func extractHeadings(src string) []heading {
 			line = strings.Count(src[:h.Lines().At(0).Start], "\n")
 		}
 		prev = line
-		heads = append(heads, heading{level: h.Level, text: plainText(h, bsrc), srcLine: line})
+		var rendered strings.Builder
+		writePlain(&rendered, h.FirstChild(), bsrc, true)
+		heads = append(heads, heading{level: h.Level, text: plainText(h, bsrc), renderedText: rendered.String(), srcLine: line})
 		return ast.WalkContinue, nil
 	})
 	return heads
 }
 
-func writePlain(b *strings.Builder, n ast.Node, src []byte) {
+func writePlain(b *strings.Builder, n ast.Node, src []byte, destinations bool) {
 	for c := n; c != nil; c = c.NextSibling() {
 		switch c := c.(type) {
 		case *ast.Text:
-			b.Write(c.Segment.Value(src))
+			b.WriteString(html.UnescapeString(string(c.Segment.Value(src))))
 			if c.SoftLineBreak() {
 				b.WriteByte(' ')
 			}
 		case *ast.String:
-			b.Write(c.Value)
+			b.WriteString(html.UnescapeString(string(c.Value)))
 		case *ast.CodeSpan:
 			for t := c.FirstChild(); t != nil; t = t.NextSibling() {
 				if t, ok := t.(*ast.Text); ok {
@@ -60,16 +64,20 @@ func writePlain(b *strings.Builder, n ast.Node, src []byte) {
 				}
 			}
 		case *ast.Link:
-			writePlain(b, c.FirstChild(), src)
+			writePlain(b, c.FirstChild(), src, destinations)
+			if destinations {
+				b.WriteByte(' ')
+				b.WriteString(printedLinkDestination(string(c.Destination)))
+			}
 		default:
-			writePlain(b, c.FirstChild(), src)
+			writePlain(b, c.FirstChild(), src, destinations)
 		}
 	}
 }
 
 func plainText(n ast.Node, src []byte) string {
 	var b strings.Builder
-	writePlain(&b, n.FirstChild(), src)
+	writePlain(&b, n.FirstChild(), src, false)
 	return b.String()
 }
 
@@ -93,7 +101,11 @@ func mapHeadings(heads []heading, lines []string) {
 	const maxRun = 4096
 	norm := make([]string, len(heads))
 	for i, h := range heads {
-		norm[i] = normHeading(h.text)
+		match := h.renderedText
+		if match == "" {
+			match = h.text
+		}
+		norm[i] = normHeading(match)
 	}
 	hi, lastEnd, runStart := 0, 0, 0
 	var acc string
@@ -112,10 +124,10 @@ func mapHeadings(heads []heading, lines []string) {
 		if acc == "" {
 			runStart = j
 		}
-		starts = append(starts, len(acc))
 		if acc != "" {
-			acc += " "
+			acc += "\n"
 		}
+		starts = append(starts, len(acc))
 		acc += s
 		for hi < len(heads) && lastEnd <= len(acc) {
 			if norm[hi] == "" {
@@ -125,7 +137,7 @@ func mapHeadings(heads []heading, lines []string) {
 				hi++
 				continue
 			}
-			k := strings.Index(acc[lastEnd:], norm[hi])
+			k, end := wrappedHeadingIndex(acc[lastEnd:], norm[hi])
 			if k < 0 {
 				break
 			}
@@ -135,7 +147,10 @@ func mapHeadings(heads []heading, lines []string) {
 				row++
 			}
 			heads[hi].line = runStart + row
-			lastEnd = a + len(norm[hi])
+			if heads[hi].level > 0 && heads[hi].line > 0 && strings.TrimSpace(lines[heads[hi].line-1]) == strings.Repeat("#", heads[hi].level) {
+				heads[hi].line--
+			}
+			lastEnd += end
 			hi++
 		}
 		if len(acc) > maxRun {
@@ -149,6 +164,33 @@ func mapHeadings(heads []heading, lines []string) {
 		}
 		heads[hi].line = len(lines)
 	}
+}
+
+// Only rendered row boundaries may replace a space or split an unbroken token.
+func wrappedHeadingIndex(rendered, title string) (int, int) {
+	for start := 0; start < len(rendered); start++ {
+		if rendered[start] != title[0] {
+			continue
+		}
+		r, t := start, 0
+		for r < len(rendered) && t < len(title) {
+			if rendered[r] == '\n' {
+				r++
+				if title[t] == ' ' {
+					t++
+				}
+			} else if rendered[r] == title[t] {
+				r++
+				t++
+			} else {
+				break
+			}
+		}
+		if t == len(title) {
+			return start, r
+		}
+	}
+	return -1, -1
 }
 
 const (

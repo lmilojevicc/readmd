@@ -241,9 +241,14 @@ func TestSearchHighlightLifecycle(t *testing.T) {
 	if hlPresent(m) {
 		t.Fatal("n after clearing must not resurrect highlights")
 	}
-	settle(t, m, press(m, "T"))
+	gen := m.gen
+	cmd := press(m, "r")
+	if cmd == nil || m.gen <= gen {
+		t.Fatal("rerender must schedule a render and advance generation")
+	}
+	settle(t, m, cmd)
 	if hlPresent(m) {
-		t.Fatal("re-render on T must not resurrect highlights")
+		t.Fatal("re-render on reader toggle must not resurrect highlights")
 	}
 
 	press(m, "/")

@@ -16,13 +16,13 @@ func TestExtractHeadings(t *testing.T) {
 		in   string
 		want []heading
 	}{
-		{"nested levels", "# A\n\n## B\n\n### C\n", []heading{{1, "A", 0, 0}, {2, "B", 0, 0}, {3, "C", 0, 0}}},
-		{"duplicates", "## Dup\n\ntext\n\n## Dup\n", []heading{{2, "Dup", 0, 0}, {2, "Dup", 0, 0}}},
-		{"all levels", "##### E\n###### F\n", []heading{{5, "E", 0, 0}, {6, "F", 0, 0}}},
-		{"setext", "Title\n======\n", []heading{{1, "Title", 0, 0}}},
+		{"nested levels", "# A\n\n## B\n\n### C\n", []heading{{level: 1, text: "A"}, {level: 2, text: "B"}, {level: 3, text: "C"}}},
+		{"duplicates", "## Dup\n\ntext\n\n## Dup\n", []heading{{level: 2, text: "Dup"}, {level: 2, text: "Dup"}}},
+		{"all levels", "##### E\n###### F\n", []heading{{level: 5, text: "E"}, {level: 6, text: "F"}}},
+		{"setext", "Title\n======\n", []heading{{level: 1, text: "Title"}}},
 		{"inline markup and linked title", "## `code` and *em* and [l](https://x.io)\n",
-			[]heading{{2, "code and em and l", 0, 0}}},
-		{"cjk emoji", "## 中文 🎉 head\n", []heading{{2, "中文 🎉 head", 0, 0}}},
+			[]heading{{level: 2, text: "code and em and l"}}},
+		{"cjk emoji", "## 中文 🎉 head\n", []heading{{level: 2, text: "中文 🎉 head"}}},
 		{"no headings", "just prose\n\ntext\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -561,6 +561,36 @@ func TestTOCUnavailableDoesNotTrapInput(t *testing.T) {
 			press(m, "o")
 			if m.tocOpen {
 				t.Fatal("outline opened without usable geometry/content")
+			}
+		})
+	}
+}
+
+func TestHeadingReviewExactRows(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		width     int
+		rows      []int
+	}{
+		{"space collision", "AB\n\n# A B\n", 120, []int{3}},
+		{"word boundary collision", "# Root\n\nAB C\n\n## A BC\n", 120, []int{1, 5}},
+		{"linked entity destination", "## [Title](https://example.org/?a=1&amp;b=2)\n\n## Next\n", 120, []int{1, 3}},
+		{"visible entities", "## A &amp; B &lt; C\n\n## Next\n", 120, []int{1, 3}},
+		{"wrapped words", "## A long heading with enough words to wrap over several rows\n\n## Next\n", 20, []int{1, 7}},
+		{"wrapped unbroken token", "## " + strings.Repeat("abcdefgh", 8) + "\n\n## Next\n", 20, []int{1, 7}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Render(tc.src, tc.width)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := splitStrip(out)
+			heads := extractHeadings(tc.src)
+			mapHeadings(heads, lines)
+			for i, row := range tc.rows {
+				if heads[i].line != row {
+					t.Errorf("heading %d row=%d want=%d; render=%q", i, heads[i].line, row, lines)
+				}
 			}
 		})
 	}

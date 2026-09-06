@@ -435,13 +435,6 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 		if m.srcView {
 			t.Fatal("s must restore rendered view")
 		}
-	case "T":
-		before := m.collapsed
-		cmd := press(m, key)
-		if cmd == nil || m.collapsed == before {
-			t.Fatal("T must toggle collapse and re-render")
-		}
-		settle(t, m, cmd)
 	case "o":
 		press(m, key)
 		if !m.tocOpen {

@@ -19,8 +19,7 @@ type Model struct {
 	width  int
 	height int
 
-	collapsed bool
-	style     string
+	style string
 
 	path     string
 	fw       *fileWatcher
@@ -269,12 +268,6 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		m.vp.SetXOffset(0)
 	case "backspace", "ctrl+h":
 		return m.backLocation()
-	case "T":
-		if m.srcView {
-			return nil
-		}
-		m.collapsed = !m.collapsed
-		return m.requestRender()
 	case "o":
 		m.openTOC()
 	case "s":
@@ -407,11 +400,12 @@ func (m *Model) requestRender() tea.Cmd {
 		return nil
 	}
 	src := m.source
-	if m.collapsed {
-		src = collapseTables(src)
-	}
 	m.rendering = true
 	w, _ := readerGeom(m.width, m.reader)
+	wrapWidth := w
+	if m.reader {
+		wrapWidth = 0
+	}
 	gen, st := m.gen, m.style
 	o := imgCtx{
 		Enabled:  m.gfx,
@@ -421,7 +415,7 @@ func (m *Model) requestRender() tea.Cmd {
 		store:    m.store,
 	}
 	return func() tea.Msg {
-		out, pending, g, err := renderDoc(o, src, w, st)
+		out, pending, g, err := renderDoc(o, src, wrapWidth, st)
 		if err != nil {
 			return renderedMsg{err: err, gen: gen}
 		}

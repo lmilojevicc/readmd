@@ -248,22 +248,15 @@ func TestSearchWrapAround(t *testing.T) {
 func TestSearchSwallowsKeysWhileTyping(t *testing.T) {
 	m := newRenderedModel(t, searchDoc, 60, 10)
 	press(m, "/")
-	collapsedBefore := m.collapsed
 	press(m, "w")
 	press(m, "T")
 	press(m, "j")
-	if m.collapsed != collapsedBefore {
-		t.Fatal("search input must capture transform keys")
-	}
 	if m.search.query != "wTj" {
 		t.Fatalf("printables append to query, got %q", m.search.query)
 	}
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.search.active {
 		t.Fatal("esc cancels input")
-	}
-	if m.collapsed {
-		t.Fatal("transform state changed after cancel")
 	}
 }
 
@@ -312,7 +305,7 @@ func TestSearchRevealsSelectedMatchHorizontally(t *testing.T) {
 		{"overlong query reveals beginning", 40, 30, false, strings.Repeat("x", 60)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			doc := strings.Repeat("界", tc.prefix) + " " + tc.query + " tail\n"
+			doc := "```\n" + strings.Repeat("界", tc.prefix) + " " + tc.query + " tail\n```\n"
 			m := newRenderedModel(t, doc, tc.width, 16)
 			if tc.reader {
 				settle(t, m, press(m, "r"))
@@ -372,7 +365,12 @@ func TestSearchRecomputesAfterRerender(t *testing.T) {
 	if n != 3 {
 		t.Fatalf("committed matches %d, want 3", n)
 	}
-	settle(t, m, press(m, "T")) // re-render from source
+	gen := m.gen
+	cmd := press(m, "r")
+	if cmd == nil || m.gen <= gen {
+		t.Fatal("rerender must schedule a render and advance generation")
+	}
+	settle(t, m, cmd)
 	if len(m.search.matches) != n || m.search.query != "alpha" {
 		t.Fatalf("re-render must refresh matches: %d vs %d", len(m.search.matches), n)
 	}

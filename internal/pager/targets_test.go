@@ -2,6 +2,7 @@ package pager
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -465,5 +466,41 @@ func TestTargetActivationRefusesDeferredDestinations(t *testing.T) {
 				t.Fatalf("cmd=%v called=%v flash=%q want=%q", cmd, called, m.flash, tc.want)
 			}
 		})
+	}
+}
+
+func TestRenderedLinkGroupingAfterTable(t *testing.T) {
+	for _, tc := range []struct {
+		name, prose string
+		want        int
+	}{
+		{"URL suffixed label", "[visit https://example.org](https://example.org)", 1},
+		{"URL label", "[https://example.org](https://example.org)", 1},
+		{"normal label", "[visit](https://example.org)", 1},
+		{"adjacent repeated URL labels", "[https://example.org](https://example.org) [https://example.org](https://example.org)", 2},
+		{"adjacent autolinks", "<https://example.org> <https://example.org>", 2},
+		{"wrapped destination", "[visit https://example.org](https://example.org/long/path/with/many/segments/and/a/query?one=two)", 1},
+	} {
+		for _, width := range []int{40, 120} {
+			t.Run(fmt.Sprintf("%s/w%d", tc.name, width), func(t *testing.T) {
+				src := "| A |\n| - |\n| [x](https://table.example) |\n\n" + tc.prose + "\n"
+				out, err := Render(src, width)
+				if err != nil {
+					t.Fatal(err)
+				}
+				targets := parseRenderedLinkTargets(src, strings.Split(out, "\n"))
+				prose, table := 0, 0
+				for _, target := range targets {
+					if target.dest == "https://table.example" {
+						table++
+					} else {
+						prose++
+					}
+				}
+				if prose != tc.want || table != 1 {
+					t.Fatalf("prose=%d want=%d table=%d targets=%#v render=%q", prose, tc.want, table, targets, splitStrip(out))
+				}
+			})
+		}
 	}
 }

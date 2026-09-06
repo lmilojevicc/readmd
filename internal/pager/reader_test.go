@@ -166,7 +166,7 @@ func TestReaderHighlightAlignment(t *testing.T) {
 // to the centered reader column and content pans within that fixed frame.
 func TestReaderViewportFrame(t *testing.T) {
 	const vw = 140
-	doc := "# Wide\n\n" + strings.Repeat("word ", 60) + "\n"
+	doc := "# Wide\n\n" + strings.Repeat("word ", 60) + "\n\n```\n" + strings.Repeat("code ", 60) + "\n```\n"
 	m := newRenderedModel(t, doc, vw, 24)
 	settle(t, m, press(m, "r"))
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/yuin/goldmark/ast"
+	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 
 	tea "charm.land/bubbletea/v2"
@@ -63,6 +64,7 @@ type openedURLMsg struct {
 
 type rawLinkRegion struct {
 	id, dest, text string
+	wrapsPrevious  bool
 	targetRegion
 }
 
@@ -108,6 +110,14 @@ func rawLinkRegions(lines []string) []rawLinkRegion {
 		}
 		// An unterminated OSC 8 span is malformed and is deliberately ignored.
 	}
+	for i := 1; i < len(raw); i++ {
+		prev, next := raw[i-1], &raw[i]
+		// Only whitespace may surround a continued line. Table rails and
+		// other container text must not merge separate links across rows.
+		next.wrapsPrevious = next.line == prev.line+1 &&
+			strings.TrimSpace(ansi.Strip(ansi.TruncateLeft(lines[prev.line], prev.end, ""))) == "" &&
+			strings.TrimSpace(ansi.Strip(ansi.Cut(lines[next.line], 0, next.start))) == ""
+	}
 	return raw
 }
 
@@ -124,22 +134,26 @@ func parseRenderedLinkTargets(src string, lines []string) []linkTarget {
 			return coalesceLinkRegions(raw)
 		}
 		first := raw[ri]
-		ri++
-		target := linkTarget{
-			id:      first.id,
-			dest:    first.dest,
-			regions: []targetRegion{first.targetRegion},
-			texts:   []string{ansi.Strip(first.text)},
+		target := linkTarget{id: first.id, dest: first.dest}
+		remaining := compactLinkText(source.text)
+		if source.table {
+			// Intrinsic table cells emit one OSC span, with a stock footnote
+			// suffix rather than the prose label-plus-destination layout.
+			remaining = compactLinkText(first.text)
 		}
-		if !source.auto && ri < len(raw) {
+		for remaining != "" && ri < len(raw) {
 			next := raw[ri]
-			if next.id == first.id && next.dest == first.dest &&
-				next.line == first.line && next.start-first.end <= 1 &&
-				ansi.Strip(next.text) == first.dest {
-				target.regions = append(target.regions, next.targetRegion)
-				target.texts = append(target.texts, ansi.Strip(next.text))
-				ri++
+			part := compactLinkText(next.text)
+			if next.id != first.id || next.dest != first.dest || !strings.HasPrefix(remaining, part) {
+				return coalesceLinkRegions(raw)
 			}
+			target.regions = append(target.regions, next.targetRegion)
+			target.texts = append(target.texts, ansi.Strip(next.text))
+			remaining = strings.TrimPrefix(remaining, part)
+			ri++
+		}
+		if remaining != "" {
+			return coalesceLinkRegions(raw)
 		}
 		out = append(out, target)
 	}
@@ -150,8 +164,8 @@ func parseRenderedLinkTargets(src string, lines []string) []linkTarget {
 }
 
 type sourceLink struct {
-	dest string
-	auto bool
+	dest, text string
+	table      bool
 }
 
 func sourceLinkLayout(src string) []sourceLink {
@@ -162,19 +176,43 @@ func sourceLinkLayout(src string) []sourceLink {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
+		table := false
+		for p := n.Parent(); p != nil; p = p.Parent() {
+			if p.Kind() == extast.KindTable {
+				table = true
+				break
+			}
+		}
 		switch n := n.(type) {
 		case *ast.Link:
-			out = append(out, sourceLink{dest: string(n.Destination)})
+			out = append(out, sourceLink{dest: string(n.Destination), text: plainText(n, bsrc) + printedLinkDestination(string(n.Destination)), table: table})
 		case *ast.AutoLink:
 			dest := string(n.URL(bsrc))
 			if n.AutoLinkType == ast.AutoLinkEmail {
 				dest = "mailto:" + dest
 			}
-			out = append(out, sourceLink{dest: dest, auto: true})
+			out = append(out, sourceLink{dest: dest, text: string(n.URL(bsrc)), table: table})
 		}
 		return ast.WalkContinue, nil
 	})
 	return out
+}
+
+// Glamour prints resolved relative paths, but keeps the original OSC target.
+func printedLinkDestination(dest string) string {
+	u, err := url.Parse(dest)
+	if err != nil || dest == "#"+u.Fragment {
+		return ""
+	}
+	if !u.IsAbs() {
+		return new(url.URL).ResolveReference(u).String()
+	}
+	return dest
+}
+
+// Wrapping adds or removes whitespace between OSC spans, not label characters.
+func compactLinkText(s string) string {
+	return strings.Join(strings.Fields(ansi.Strip(s)), "")
 }
 
 func parseOSC8(seq string) (params, dest string, ok bool) {
@@ -216,6 +254,7 @@ func osc8ID(params string) string {
 func coalesceLinkRegions(raw []rawLinkRegion) []linkTarget {
 	var out []linkTarget
 	complete := true
+	remaining := ""
 	for _, reg := range raw {
 		text := ansi.Strip(reg.text)
 		join := false
@@ -223,17 +262,24 @@ func coalesceLinkRegions(raw []rawLinkRegion) []linkTarget {
 			last := &out[len(out)-1]
 			prev := last.regions[len(last.regions)-1]
 			join = last.id == reg.id && last.dest == reg.dest &&
-				prev.line == reg.line && reg.start-prev.end <= 1
+				((prev.line == reg.line && reg.start-prev.end <= 1) || reg.wrapsPrevious)
 		}
 		if !join {
 			out = append(out, linkTarget{id: reg.id, dest: reg.dest})
 			complete = renderedAutolink(reg.dest, text)
+			remaining = compactLinkText(printedLinkDestination(reg.dest))
 		}
 		last := &out[len(out)-1]
 		last.regions = append(last.regions, reg.targetRegion)
 		last.texts = append(last.texts, text)
-		if len(last.regions) > 1 && text == reg.dest {
-			complete = true
+		if join {
+			part := compactLinkText(text)
+			if strings.HasPrefix(remaining, part) {
+				remaining = strings.TrimPrefix(remaining, part)
+				complete = remaining == ""
+			} else {
+				remaining = compactLinkText(printedLinkDestination(reg.dest))
+			}
 		}
 	}
 	return out

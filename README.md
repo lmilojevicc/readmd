@@ -11,9 +11,12 @@ go build -o readmd . && ./readmd example.md
 
 ## Why
 
-- **Wide tables** retain their natural width with column panning; `T`
-  collapses any table into key-value records. Transforms happen in markdown
-  space, never by editing ANSI.
+- **Prose wraps; structural blocks pan.** Top-level paragraphs and headings
+  use stock Glamour wrapping at the viewport width. Tables, code/Mermaid,
+  whole lists, blockquotes, and definition lists keep their natural width,
+  including prose inside those containers. Table cells have **no width cap**.
+  `r` switches to a centered, natural-width pannable reader viewport (up to
+  120 columns); it does not reflow the document.
 - **GitHub-style callouts** (`> [!NOTE]`) get a per-type colored rail and icon
   title, nvim render-markdown style.
 - **Terminal-adaptive color**: the default theme is built purely from your
@@ -49,7 +52,6 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 | `r` | centered 120-column reader viewport with horizontal panning |
 | `s` | toggle rendered / source view |
 | `o` | help-style outline (`j/k` or wheel preview, `/` filters, `Enter` commits, `Esc`/`q`/`o` cancel; prompt `Esc` clears first) |
-| `T` | collapse tables to key-value records |
 | `/` | search; `n` / `N` next / previous match (highlighted) |
 | `?` | help overlay |
 | `R` | reload file |
@@ -60,7 +62,10 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 ## Features
 
 - Async rendering off the UI thread; resize always re-renders **from source**
-  (cached raw markdown, never transformed cached ANSI).
+  (cached raw markdown, never transformed cached ANSI). The no-fork adapter
+  parses the preprocessed document globally with Goldmark, renders independent
+  top-level AST units through public Glamour ANSI APIs, and composes fresh
+  output before postprocessing and navigation metadata collection.
 - Help-style TOC with title filtering and reversible heading previews (`Esc`,
   `q`, or `o` cancels; filter-prompt `Esc` clears before closing), incremental
   search with neovim-style match highlighting, live reload
@@ -76,6 +81,16 @@ readmd --style dark a.md  # fixed theme instead of palette-adaptive
 - Links are OSC 8 hyperlinks with the full URL preserved as target; `t` gives visible links and footnote references fixed-width keyboard hints. HTTP, HTTPS, and mailto targets open externally; relative and file navigation is deferred. In target mode, type the label, edit with `Backspace`, or cancel with `Esc`; in normal mode, `Backspace` returns from a footnote jump. Mouse capture is enabled by default: click a visible link or footnote reference, and use the wheel to scroll. `m` releases capture for terminal-native selection and scrolling. While capture is active, terminal-native selection commonly uses Shift and varies by emulator.
 - Grapheme-correct widths throughout: CJK, emoji and combining marks never
   split or misalign columns.
+
+### Rendering tradeoffs
+
+Stock Glamour can hard-split long prose tokens, including inline code and
+printed URLs; OSC 8 destinations still retain the full URL. Explicit Markdown
+hard breaks survive; soft source line breaks flow as spaces. Search remains
+line-local, so phrases spanning a wrap boundary do not match. Reader or source
+view can be used to inspect an unbroken token. GFM table parsing rules still
+apply: escape pipes even inside inline code, and cells beyond the header count
+are discarded by Goldmark. There is no wrap-mode toggle or table-records mode.
 
 ## Development
 

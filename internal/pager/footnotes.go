@@ -1,7 +1,6 @@
 package pager
 
 import (
-	"bytes"
 	"sort"
 	"strings"
 
@@ -27,14 +26,14 @@ type sourceFootnoteMarker struct {
 type sourceRange struct{ start, end int }
 
 type documentLocation struct {
-	y, x                  int
-	reader, source, table bool
+	y, x           int
+	reader, source bool
 }
 
 func (m *Model) currentLocation() documentLocation {
 	return documentLocation{
 		y: m.vp.YOffset(), x: m.vp.XOffset(),
-		reader: m.reader, source: m.srcView, table: m.collapsed,
+		reader: m.reader, source: m.srcView,
 	}
 }
 
@@ -61,8 +60,8 @@ func (m *Model) backLocation() tea.Cmd {
 	last := len(m.locations) - 1
 	loc := m.locations[last]
 	m.locations = m.locations[:last]
-	changed := m.reader != loc.reader || m.srcView != loc.source || m.collapsed != loc.table
-	m.reader, m.srcView, m.collapsed = loc.reader, loc.source, loc.table
+	changed := m.reader != loc.reader || m.srcView != loc.source
+	m.reader, m.srcView = loc.reader, loc.source
 	m.pendingLocation = &loc
 	m.syncVPWidth()
 	if loc.source {
@@ -146,11 +145,11 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 		if len(regions) != len(indexes) {
 			continue
 		}
-		regionBySource := map[int]targetRegion{}
+		regionBySource := map[int][]targetRegion{}
 		for j, i := range indexes {
 			regionBySource[i] = regions[j]
 		}
-		defRegion := regionBySource[definition]
+		defRegion := regionBySource[definition][0]
 		for _, i := range indexes {
 			if !markers[i].reference {
 				continue
@@ -159,7 +158,7 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 				kind:       targetFootnote,
 				id:         "footnote:" + label,
 				footnote:   label,
-				regions:    []targetRegion{regionBySource[i]},
+				regions:    regionBySource[i],
 				definition: defRegion,
 			})
 		}
@@ -317,20 +316,40 @@ func inSourceRanges(pos int, ranges []sourceRange) bool {
 	return false
 }
 
-func renderedFootnoteMarkers(lines []string, label string) []targetRegion {
+// A wrapped occurrence retains each fragment's display columns. Only exact
+// token bytes across adjacent content-row edges are joined; blank rows and
+// container rails cannot be skipped. Source counts still gate the whole label.
+func renderedFootnoteMarkers(lines []string, label string) [][]targetRegion {
 	token := "[^" + label + "]"
-	tokenWidth := ansi.StringWidth(token)
-	var out []targetRegion
+	var out [][]targetRegion
 	for line, content := range lines {
-		for from := 0; from <= len(content); {
-			rel := bytes.Index([]byte(content[from:]), []byte(token))
+		for from := 0; from < len(content); {
+			rel := strings.Index(content[from:], "[")
 			if rel < 0 {
 				break
 			}
-			startByte := from + rel
-			start := ansi.StringWidth(content[:startByte])
-			out = append(out, targetRegion{line: line, start: start, end: start + tokenWidth})
-			from = startByte + len(token)
+			start := from + rel
+			from = start + 1
+			var regions []targetRegion
+			remaining := token
+			for row, offset := line, start; row < len(lines); row++ {
+				part := strings.TrimRight(lines[row][offset:], " ")
+				if strings.HasPrefix(part, remaining) {
+					part = remaining
+				} else if part == "" || !strings.HasPrefix(remaining, part) {
+					break
+				}
+				col := ansi.StringWidth(lines[row][:offset])
+				regions = append(regions, targetRegion{row, col, col + ansi.StringWidth(part)})
+				remaining = strings.TrimPrefix(remaining, part)
+				if remaining == "" {
+					out = append(out, regions)
+					break
+				}
+				if row+1 < len(lines) {
+					offset = len(lines[row+1]) - len(strings.TrimLeft(lines[row+1], " "))
+				}
+			}
 		}
 	}
 	return out

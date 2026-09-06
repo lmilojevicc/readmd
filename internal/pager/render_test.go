@@ -76,29 +76,3 @@ func TestWideTableNaturalGeometry(t *testing.T) {
 		t.Fatal("wide table must retain geometry beyond the viewport")
 	}
 }
-
-func TestNaturalWidthIndependentOfViewport(t *testing.T) {
-	src := "# T\n\nlong prose line that must remain intact across every viewport width\n\n" +
-		"| Service identifier | Internal endpoint |\n| - | - |\n| auth-api | auth.internal:8443 |\n"
-	var first string
-	for _, width := range []int{20, 40, 79} {
-		out, err := Render(src, width)
-		if err != nil {
-			t.Fatal(err)
-		}
-		plain := ansi.Strip(out)
-		for _, want := range []string{"long prose line that must remain intact", "Service identifier", "auth.internal:8443"} {
-			if !strings.Contains(plain, want) {
-				t.Fatalf("w%d lost token %q: %q", width, want, plain)
-			}
-		}
-		if first == "" {
-			first = plain
-		} else if plain != first {
-			t.Fatalf("natural-width output changed at width %d", width)
-		}
-		if width == 20 && widestLine(strings.Split(plain, "\n")) <= width {
-			t.Fatalf("w%d precondition: output did not overflow", width)
-		}
-	}
-}

@@ -38,7 +38,6 @@ var helpEntries = []helpEntry{
 	{"Backspace", "edit target / return footnote", "Navigation"},
 	{"m", "toggle mouse capture", "Modes"},
 	{"s", "rendered/source view", "Modes"},
-	{"T", "collapse tables", "Modes"},
 	{"r", "toggle reader column", "Modes"},
 	{"o", "outline: / filter; Enter jump; Esc/q/o cancel", "Modes"},
 	{"/", "search forward", "Search"},

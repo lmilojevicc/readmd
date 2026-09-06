@@ -1,6 +1,8 @@
 package pager
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -267,28 +269,28 @@ func TestFootnoteBackRestoresRepresentation(t *testing.T) {
 	settle(t, m, press(m, "r"))
 	original := m.currentLocation()
 	m.jumpFootnote(linkTarget{kind: targetFootnote, footnote: "1", definition: targetRegion{line: len(m.stripped) - 2, start: 2, end: 6}})
-	settle(t, m, press(m, "T"))
+	settle(t, m, press(m, "r"))
 	press(m, "s")
 	cmd := pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if cmd == nil {
 		t.Fatal("restoring rendered representation must re-render")
 	}
 	settle(t, m, cmd)
-	if m.srcView || m.collapsed || !m.reader || m.vp.YOffset() != original.y || m.vp.XOffset() != original.x {
-		t.Fatalf("restored state source=%v table=%v reader=%v x/y=%d/%d want %d/%d", m.srcView, m.collapsed, m.reader, m.vp.XOffset(), m.vp.YOffset(), original.x, original.y)
+	if m.srcView || !m.reader || m.vp.YOffset() != original.y || m.vp.XOffset() != original.x {
+		t.Fatalf("restored state source=%v reader=%v x/y=%d/%d want %d/%d", m.srcView, m.reader, m.vp.XOffset(), m.vp.YOffset(), original.x, original.y)
 	}
 }
 
-func TestFootnoteTargetsRecomputeAcrossTransformAndSource(t *testing.T) {
+func TestFootnoteTargetsRecomputeAcrossReaderAndSource(t *testing.T) {
 	src := "ref[^1]\n\n| A | B |\n| - | - |\n| x | y |\n\n[^1]: note body\n"
 	m := newRenderedModel(t, src, 60, 12)
 	if got := countFootnoteTargets(m.links); got != 1 {
 		markers, ok := sourceFootnoteMarkers(src)
 		t.Fatalf("initial footnotes=%d markers=%#v ok=%v rendered=%q", got, markers, ok, m.stripped)
 	}
-	settle(t, m, press(m, "T"))
+	settle(t, m, press(m, "r"))
 	if got := countFootnoteTargets(m.links); got != 1 {
-		t.Fatalf("collapsed footnotes=%d", got)
+		t.Fatalf("reader footnotes=%d", got)
 	}
 	press(m, "s")
 	if m.srcView && len(m.links) != 0 {
@@ -351,4 +353,174 @@ func countFootnoteTargets(targets []linkTarget) int {
 		}
 	}
 	return n
+}
+
+func TestWrappedFootnoteReview(t *testing.T) {
+	label := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 2)
+	marker := "[^" + label + "]"
+	for _, tc := range []struct {
+		name, prefix string
+		rows         []int
+		definition   int
+	}{
+		{"plain", "ref" + marker, []int{1}, 4},
+		{"repeated CJK", "界界" + marker + " again" + marker, []int{1, 3}, 6},
+		{"literals and HTML", "`" + marker + "` \\" + marker + " <span title=\"" + marker + "\">x</span> real" + marker, []int{5}, 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := tc.prefix + "\n\n" + marker + ": note body\n"
+			out, err := Render(src, 40)
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets := parseFootnoteTargets(src, splitStrip(out))
+			if len(targets) != len(tc.rows) {
+				t.Fatalf("targets=%#v want=%d render=%q", targets, len(tc.rows), splitStrip(out))
+			}
+			for i, target := range targets {
+				if target.regions[0].line != tc.rows[i] || target.definition.line != tc.definition {
+					t.Fatalf("reference/definition mapped to wrong occurrence: %#v want rows %v definition %d", target, tc.rows, tc.definition)
+				}
+				if len(target.regions) < 2 {
+					t.Fatalf("wrapped marker requires multiple regions: %#v", target)
+				}
+			}
+		})
+	}
+}
+
+func TestWrappedFootnoteRegionsNavigate(t *testing.T) {
+	label := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 2)
+	marker := "[^" + label + "]"
+	for _, reader := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reader=%v", reader), func(t *testing.T) {
+			src := "界界" + marker + " again" + marker + "\n\n" + strings.Repeat("filler\n\n", 12) + marker + ": note body\n\n" + strings.Repeat("tail\n\n", 8)
+			m := newRenderedModel(t, src, 40, 10)
+			if reader {
+				settle(t, m, press(m, "r"))
+			}
+			if countFootnoteTargets(m.links) != 2 {
+				t.Fatalf("references lost: %#v", m.links)
+			}
+			base := append([]string(nil), m.base...)
+			definition := m.links[0].definition
+			for _, target := range m.links {
+				if target.definition != definition {
+					t.Fatal("repeated references disagree on definition")
+				}
+				var text strings.Builder
+				for _, reg := range target.regions {
+					text.WriteString(ansi.Cut(m.stripped[reg.line], reg.start, reg.end))
+				}
+				if text.String() != marker {
+					t.Fatalf("regions do not reconstruct marker: %q", text.String())
+				}
+				definitionEnd := definition.line
+				if !reader {
+					definitionEnd++
+				}
+				if !strings.Contains(m.stripped[definitionEnd], "note body") {
+					t.Fatalf("wrong definition row: %#v", definition)
+				}
+				if reader && len(target.regions) != 1 {
+					t.Fatal("reader marker should stay natural")
+				}
+				if !reader && len(target.regions) < 2 {
+					t.Fatal("normal marker should wrap")
+				}
+				for _, reg := range target.regions {
+					m.vp.SetYOffset(reg.line)
+					m.vp.SetXOffset(reg.start)
+					before := m.currentLocation()
+					margin := 0
+					if reader {
+						_, margin = readerGeom(m.width, true)
+					}
+					if cmd := sendMouseClick(m, margin+reg.start-before.x, reg.line-m.vp.YOffset()); cmd != nil {
+						t.Fatal("internal jump launched external command")
+					}
+					if len(m.locations) != 1 || m.vp.YOffset() != definition.line {
+						t.Fatalf("fragment click missed definition: %#v y=%d", reg, m.vp.YOffset())
+					}
+					pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+					if m.currentLocation() != before {
+						t.Fatal("fragment mouse Backspace did not restore location")
+					}
+					press(m, "t")
+					if !m.targets.active {
+						t.Fatal("fragment lacks keyboard hint")
+					}
+					press(m, strings.ToLower(m.targets.targets[0].label))
+					if len(m.locations) != 1 || m.vp.YOffset() != definition.line {
+						t.Fatal("fragment keyboard hint missed definition")
+					}
+					pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+					if m.currentLocation() != before {
+						t.Fatal("fragment keyboard Backspace did not restore location")
+					}
+				}
+			}
+			if !slices.Equal(base, m.base) {
+				t.Fatal("navigation mutated cached ANSI")
+			}
+		})
+	}
+}
+
+func TestRenderedFootnoteMarkerBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lines []string
+		want  int
+	}{
+		{"local", []string{"  ref[^abc] tail"}, 1},
+		{"wrapped", []string{"  ref[^a", "  bc] tail"}, 1},
+		{"split opening", []string{"  ref[", "  ^abc] tail"}, 1},
+		{"blank paragraph boundary", []string{"  ref[^a", "", "  bc]"}, 0},
+		{"space paragraph boundary", []string{"  ref[^a", "  ", "  bc]"}, 0},
+		{"intervening text", []string{"  ref[^a other", "  bc]"}, 0},
+		{"quote rail", []string{"  │ ref[^a", "  │ bc]"}, 0},
+		{"table rail", []string{"  │ ref[^a │", "  │ bc] │"}, 0},
+		{"independent list item", []string{"  • ref[^a", "  • bc]"}, 0},
+		{"internal whitespace", []string{"  ref[^a b", "  c]"}, 0},
+		// Stripped rows cannot distinguish these from a real wrap. The source
+		// occurrence counts below reject the extra constructed marker.
+		{"hard-break shaped rows", []string{"  ref[^a", "  bc]"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := renderedFootnoteMarkers(tc.lines, "abc"); len(got) != tc.want {
+				t.Fatalf("occurrences=%#v want=%d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWrappedFootnoteAmbiguityGuards(t *testing.T) {
+	label := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 2)
+	marker := "[^" + label + "]"
+	for _, tc := range []struct {
+		name, prefix string
+		want         int
+	}{
+		{"extra literal occurrence", marker + "\n\n", 0},
+		{"hard break constructed occurrence", "[^" + label[:26] + "  \n" + label[26:] + "]\n\n", 0},
+		{"code hard break constructed occurrence", "`[^" + label[:26] + "`  \n`" + label[26:] + "]`\n\n", 0},
+		{"independent paragraphs", "[^" + label[:26] + "\n\n" + label[26:] + "]\n\n", 1},
+		{"adjacent fenced blocks", "```\n[^" + label[:26] + "\n```\n```\n" + label[26:] + "]\n```\n\n", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "ref" + marker + "\n\n" + marker + ": note body\n"
+			renderSource := tc.prefix + src
+			if tc.name != "extra literal occurrence" {
+				src = renderSource
+			}
+			out, err := Render(renderSource, 40)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := parseFootnoteTargets(src, splitStrip(out)); len(got) != tc.want {
+				t.Fatalf("targets=%#v want=%d render=%q", got, tc.want, splitStrip(out))
+			}
+		})
+	}
 }

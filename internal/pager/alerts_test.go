@@ -158,11 +158,11 @@ func TestAlertDeclines(t *testing.T) {
 		{"table in quote", "> [!NOTE]\n> | A |\n> | - |\n> | b |\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _, _, err := renderStyled(imgCtx{}, tc.src, paletteStyleName, true)
+			got, _, _, err := renderStyled(imgCtx{}, tc.src, 40, paletteStyleName, true)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, _, _, err := renderStyled(imgCtx{}, tc.src, paletteStyleName, false)
+			want, _, _, err := renderStyled(imgCtx{}, tc.src, 40, paletteStyleName, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -220,7 +220,7 @@ func TestAlertDocLiteralMarkerSurvives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, _, _, err := renderStyled(imgCtx{}, src, paletteStyleName, false)
+	want, _, _, err := renderStyled(imgCtx{}, src, 60, paletteStyleName, false)
 	if err != nil {
 		t.Fatal(err)
 	}

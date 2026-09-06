@@ -198,16 +198,13 @@ func TestSourceReloadAppliesInPlace(t *testing.T) {
 	}
 }
 
-func TestSourceGuardsTransformKey(t *testing.T) {
+func TestSourceUnboundKeys(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 10)
 	press(m, "s")
 	if cmd := press(m, "w"); cmd != nil {
 		t.Fatal("w must remain unbound in source mode")
 	}
 	if cmd := press(m, "T"); cmd != nil {
-		t.Fatal("T frozen in source mode")
-	}
-	if m.collapsed {
-		t.Fatal("T must not toggle collapse in source mode")
+		t.Fatal("T must remain unbound in source mode")
 	}
 }

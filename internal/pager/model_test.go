@@ -26,7 +26,7 @@ func settle(t *testing.T, m *Model, cmd tea.Cmd) {
 	}
 }
 
-var longDoc = "short line\n" + strings.Repeat("x", 200) + "\nanother\n"
+var longDoc = "```\nshort line\n" + strings.Repeat("x", 200) + "\nanother\n```\n"
 
 func TestModelNavigation(t *testing.T) {
 	m := New(longDoc, "t")
@@ -56,21 +56,13 @@ func TestModelNavigation(t *testing.T) {
 		t.Fatalf("0 must reset offset, got %d", m.vp.XOffset())
 	}
 
-	cmd = press(m, "T")
-	if !m.collapsed {
-		t.Fatal("T should set collapsed")
+	for _, key := range []string{"w", "T"} {
+		before = m.vp.XOffset()
+		if cmd := press(m, key); cmd != nil || m.vp.XOffset() != before {
+			t.Fatalf("%s must be unbound (cmd=%v offset=%d)", key, cmd, m.vp.XOffset())
+		}
 	}
-	settle(t, m, cmd)
-	cmd = press(m, "T")
-	if m.collapsed {
-		t.Fatal("second T should un-collapse")
-	}
-	settle(t, m, cmd)
 
-	before = m.vp.XOffset()
-	if cmd := press(m, "w"); cmd != nil || m.vp.XOffset() != before || m.collapsed {
-		t.Fatalf("w must be unbound (cmd=%v offset=%d collapsed=%v)", cmd, m.vp.XOffset(), m.collapsed)
-	}
 }
 
 func TestHorizontalPan(t *testing.T) {
@@ -135,37 +127,6 @@ func TestHorizontalPan(t *testing.T) {
 			}
 			if after := m.vp.View(); after != before {
 				t.Fatal("horizontal keys must not disturb non-overflowing content")
-			}
-		})
-	}
-}
-
-func TestCollapseClampsXOffset(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		doc     string
-		pans    int
-		wantOff int
-	}{
-		{"shrinks below offset", "| " + strings.Repeat("x", 200) + " |\n| - |\n", 15, 0},
-		{"still wider than offset", "| H |\n| - |\n| " + strings.Repeat("y", 150) + " |\n", 5, 40},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := New(tc.doc, "t")
-			nm, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-			*m = *nm.(*Model)
-			settle(t, m, cmd)
-			for range tc.pans {
-				press(m, "l")
-			}
-			if m.vp.XOffset() == 0 {
-				t.Fatal("precondition: pan did not move offset")
-			}
-			if !m.collapsed {
-				settle(t, m, press(m, "T"))
-			}
-			if got := m.vp.XOffset(); got != tc.wantOff {
-				t.Fatalf("after collapse: offset %d, want %d", got, tc.wantOff)
 			}
 		})
 	}

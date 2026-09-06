@@ -1,18 +1,22 @@
 package pager
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"unicode"
 
-	"charm.land/glamour/v2"
 	glamansi "charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi/kitty"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 const paletteStyleName = "palette"
@@ -174,14 +178,14 @@ func renderDoc(o imgCtx, source string, width int, style string) (string, []stri
 	if o.Width <= 0 {
 		o.Width = width
 	}
-	out, pending, g, err := renderStyled(o, source, style, true)
+	out, pending, g, err := renderStyled(o, source, width, style, true)
 	if errors.Is(err, errAlertSplice) {
-		return renderStyled(o, source, style, false)
+		return renderStyled(o, source, width, style, false)
 	}
 	return out, pending, g, err
 }
 
-func renderStyled(o imgCtx, source string, style string, alertsOn bool) (string, []string, docGfx, error) {
+func renderStyled(o imgCtx, source string, width int, style string, alertsOn bool) (string, []string, docGfx, error) {
 	src := sanitize(source)
 	src = expandMermaid(src)
 	src = substituteMath(src)
@@ -207,7 +211,14 @@ func renderStyled(o imgCtx, source string, style string, alertsOn bool) (string,
 		}
 		return rendered, g, nil
 	}
-	out, err := renderGlamour(src, style)
+	intrinsic := make(map[string]bool)
+	for _, f := range figs {
+		intrinsic[f.token] = true
+	}
+	for _, a := range alerts {
+		intrinsic[a.startTok], intrinsic[a.endTok] = true, true
+	}
+	out, err := renderGlamour(src, width, style, intrinsic)
 	if err != nil {
 		return "", nil, docGfx{}, err
 	}
@@ -215,28 +226,72 @@ func renderStyled(o imgCtx, source string, style string, alertsOn bool) (string,
 	return trimTrailing(out), pending, g, err
 }
 
-func renderGlamour(src string, style string) (string, error) {
-	opts := []glamour.TermRendererOption{
-		glamour.WithWordWrap(0),
-		glamour.WithTableWrap(false),
-	}
+// Each render owns its AST and renderers. References resolve before nodes move
+// into temporary roots; complete containers retain their parsing context.
+func renderGlamour(src string, width int, style string, intrinsic map[string]bool) (string, error) {
+	options := glamansi.Options{TableWrap: boolPtr(false), PreserveNewLines: true}
 	if style == paletteStyleName {
 		registerPaletteChroma()
-		opts = append(opts,
-			glamour.WithStyles(paletteConfig),
-			glamour.WithChromaFormatter("terminal16"),
-		)
+		options.Styles = paletteConfig
+		options.ChromaFormatter = "terminal16"
 	} else {
 		if style == "" {
 			style = styles.NoTTYStyle
 		}
-		opts = append(opts, glamour.WithStandardStyle(style))
+		config, ok := styles.DefaultStyles[style]
+		if !ok {
+			return "", fmt.Errorf("%s: style not found", style)
+		}
+		options.Styles = *config
 	}
-	tr, err := glamour.NewTermRenderer(opts...)
-	if err != nil {
-		return "", err
+	source := []byte(src)
+	doc := md.Parser().Parse(text.NewReader(source))
+	space := text.NewSegment(len(source), len(source)+1)
+	source = append(source, ' ')
+	// Glamour's preserved-newline option includes soft breaks. Resolve those
+	// to spaces in this private AST, leaving explicit Markdown hard breaks.
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if n.Kind() == ast.KindCodeSpan {
+			return ast.WalkSkipChildren, nil
+		}
+		if n, ok := n.(*ast.Text); entering && ok && n.SoftLineBreak() && !n.HardLineBreak() {
+			n.SetSoftLineBreak(false)
+			n.Parent().InsertAfter(n.Parent(), n, ast.NewTextSegment(space))
+		}
+		return ast.WalkContinue, nil
+	})
+	var out bytes.Buffer
+	first := true
+	for node := doc.FirstChild(); node != nil; {
+		next := node.NextSibling()
+		fragment := options
+		prose := node.Kind() == ast.KindParagraph || node.Kind() == ast.KindHeading
+		if prose && !intrinsic[strings.TrimSpace(string(node.Lines().Value(source)))] {
+			fragment.WordWrap = max(0, width)
+		}
+		// Apply document margins once. Stock headings/paragraphs normally insert
+		// a leading newline when preceded by a sibling; temporary roots have none.
+		if !first {
+			fragment.Styles.Document.BlockPrefix = ""
+			if prose {
+				fragment.Styles.Document.BlockPrefix = "\n"
+			}
+		}
+		if next != nil {
+			fragment.Styles.Document.BlockSuffix = ""
+		}
+		root := ast.NewDocument()
+		root.AppendChild(root, node)
+		r := renderer.NewRenderer(renderer.WithNodeRenderers(
+			util.Prioritized(glamansi.NewRenderer(fragment), 1000),
+		))
+		if err := r.Render(&out, source, root); err != nil {
+			return "", err
+		}
+		first = false
+		node = next
 	}
-	return tr.Render(src)
+	return out.String(), nil
 }
 
 func sanitize(src string) string {
