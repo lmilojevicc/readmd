@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"readmd/internal/config"
 	"readmd/internal/pager"
 )
 
@@ -43,9 +43,15 @@ func parseArgs(args []string) (cliOpts, error) {
 				return opts, errors.New("--style requires a value (" + usage + ")")
 			}
 			opts.style = args[i]
+			if err := validateCLIStyle(opts.style); err != nil {
+				return opts, err
+			}
 		default:
 			if strings.HasPrefix(a, "--style=") {
 				opts.style = strings.TrimPrefix(a, "--style=")
+				if err := validateCLIStyle(opts.style); err != nil {
+					return opts, err
+				}
 				continue
 			}
 			if strings.HasPrefix(a, "-") && a != "-" {
@@ -55,6 +61,25 @@ func parseArgs(args []string) (cliOpts, error) {
 		}
 	}
 	return opts, nil
+}
+
+func validateCLIStyle(style string) error {
+	c := config.Defaults()
+	c.Style = style
+	return c.Validate()
+}
+
+func applyCLI(c config.Config, opts cliOpts) config.Config {
+	if opts.style != "" {
+		c.Style = opts.style
+	}
+	if opts.imgs.NoImages {
+		c.Images = false
+	}
+	if opts.imgs.NoRemote {
+		c.RemoteImages = false
+	}
+	return c
 }
 
 func run() error {
@@ -106,18 +131,30 @@ func run() error {
 		in = tty
 	}
 
-	model := pager.New(string(src), name)
-	if err := model.SetStyle(opts.style); err != nil {
+	model, err := startupModel(string(src), name, opts, os.Stderr)
+	if err != nil {
 		return err
 	}
-	if name != "" && name != "(stdin)" {
-		model.SetPath(name)
-		opts.imgs.DocDir = filepath.Dir(name)
-	}
-	model.SetImages(opts.imgs)
 	defer model.Close()
 
 	p := tea.NewProgram(model, tea.WithInput(in))
 	_, err = p.Run()
 	return err
+}
+
+func startupModel(source, name string, opts cliOpts, warnings io.Writer) (*pager.Model, error) {
+	c, err := config.Load(warnings)
+	if err != nil {
+		return nil, err
+	}
+	c = applyCLI(c, opts)
+	model := pager.New(source, name)
+	if name != "" && name != "(stdin)" {
+		model.SetPath(name)
+	}
+	if err := model.Configure(c); err != nil {
+		return nil, err
+	}
+
+	return model, nil
 }

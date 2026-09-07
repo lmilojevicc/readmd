@@ -49,18 +49,32 @@ type hintTarget struct {
 	label string
 }
 
+type pickerDesign uint8
+
+const (
+	pickerList pickerDesign = iota
+	pickerVimium
+)
+
 type targetMode struct {
-	active      bool
-	prefix      string
-	targets     []hintTarget
-	savedX      int
-	savedY      int
-	savedHeight int
-	focus       int
-	top         int
-	panelHeight int
-	detailPage  int
-	rows        []targetRowBounds
+	active                      bool
+	prefix                      string
+	targets                     []hintTarget
+	savedX, savedY, savedHeight int
+	savedFlash, savedError      string
+	rows                        []targetRowBounds
+	list                        targetListState
+	vimium                      targetVimiumState
+}
+
+type targetListState struct {
+	focus, top, panelHeight, detailPage int
+}
+
+type targetVimiumState struct {
+	badges              []targetBadge
+	fallback            []hintTarget
+	fallbackRows, focus int
 }
 
 type openedURLMsg struct {
@@ -374,11 +388,16 @@ func visibleLinkTargets(links []linkTarget, y int, rows []targetRowBounds) []lin
 }
 
 func (m *Model) openTargets() {
-	if m.srcView || m.base == nil || m.rendering {
+	if m.base == nil || m.rendering {
 		m.flash = "targets unavailable"
 		return
 	}
-	if m.vp.Height() < 1 || m.width < 30 {
+	minWidth, minHeight := 30, 1
+	switch m.picker {
+	case pickerVimium:
+		minWidth, minHeight = 24, 3
+	}
+	if m.vp.Height() < minHeight || m.width < minWidth {
 		m.flash = "not enough room for targets"
 		return
 	}
@@ -388,9 +407,13 @@ func (m *Model) openTargets() {
 		return
 	}
 	savedX, savedY := m.vp.XOffset(), m.vp.YOffset()
-	m.targets = targetMode{active: true, savedX: savedX, savedY: savedY, savedHeight: m.vp.Height(), panelHeight: 1, rows: rows}
-	if m.vp.Height() >= 7 {
-		m.targets.panelHeight = min(10, m.vp.Height()-1)
+	m.targets = targetMode{active: true, savedX: savedX, savedY: savedY, savedHeight: m.vp.Height(), savedFlash: m.flash, savedError: m.errMsg, rows: rows}
+	switch m.picker {
+	case pickerList:
+		m.targets.list.panelHeight = 1
+		if m.vp.Height() >= 7 {
+			m.targets.list.panelHeight = min(10, m.vp.Height()-1)
+		}
 	}
 	links := visibleLinkTargets(m.links, savedY, rows)
 	sort.SliceStable(links, func(i, j int) bool {
@@ -415,6 +438,10 @@ func (m *Model) openTargets() {
 		hints[i] = hintTarget{linkTarget: links[i], label: labels[i]}
 	}
 	m.targets.targets = hints
+	switch m.picker {
+	case pickerVimium:
+		m.placeTargetBadges()
+	}
 	m.applySearchView()
 }
 
@@ -444,33 +471,31 @@ func (m *Model) targetCandidates() []hintTarget {
 }
 
 func (m *Model) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
+	switch m.picker {
+	case pickerList:
+		if handled, cmd := m.handleListNavigation(msg); handled {
+			return cmd
+		}
+	case pickerVimium:
+		switch msg.String() {
+		case "tab", "down", "right":
+			m.moveTargetFallback(1)
+			return nil
+		case "shift+tab", "up", "left":
+			m.moveTargetFallback(-1)
+			return nil
+		case "enter":
+			fallback := m.filteredFallback()
+			if len(fallback) > 0 {
+				return m.activateTarget(fallback[min(m.targets.vimium.focus, len(fallback)-1)])
+			}
+			return nil
+		}
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.stopTargets(true)
-		return nil
-	case "tab", "down", "right":
-		m.moveTargetFocus(1)
-		return nil
-	case "shift+tab", "up", "left":
-		m.moveTargetFocus(-1)
-		return nil
-	case "pgdown":
-		m.moveTargetFocus(m.targetVisibleRows())
-		return nil
-	case "pgup":
-		m.moveTargetFocus(-m.targetVisibleRows())
-		return nil
-	case "ctrl+right", "ctrl+left":
-		delta := 1
-		if msg.String() == "ctrl+left" {
-			delta = -1
-		}
-		m.targets.detailPage = min(max(0, m.targets.detailPage+delta), m.targetDetailPageCount()-1)
-		return nil
-	case "enter":
-		if target, ok := m.focusedTarget(); ok {
-			return m.activateTarget(target)
-		}
 		return nil
 	case "backspace", "ctrl+h":
 		if r := []rune(m.targets.prefix); len(r) > 0 {
@@ -484,7 +509,7 @@ func (m *Model) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	r := unicode.ToLower([]rune(kp.Text)[0])
-	if !strings.ContainsRune(hintAlphabet, r) {
+	if !strings.ContainsRune(hintAlphabet, r) || len(m.targets.prefix) >= len(m.targets.targets[0].label) {
 		return nil
 	}
 	m.targets.prefix += string(r)
@@ -586,7 +611,15 @@ func (m *Model) targetSpans() map[int][]span {
 		return nil
 	}
 	groups := map[int][]span{}
-	if target, ok := m.focusedTarget(); ok {
+	candidates := m.targetCandidates()
+	switch m.picker {
+	case pickerList:
+		candidates = nil
+		if target, ok := m.focusedTarget(); ok {
+			candidates = []hintTarget{target}
+		}
+	}
+	for _, target := range candidates {
 		for _, reg := range target.regions {
 			groups[reg.line] = append(groups[reg.line], span{reg.start, reg.end})
 		}
@@ -601,4 +634,35 @@ func (m *Model) handleOpenedURL(msg openedURLMsg) {
 		return
 	}
 	m.flash = fmt.Sprintf("opened %s", targetDescription(msg.dest))
+}
+
+func (m *Model) handleListNavigation(msg tea.KeyMsg) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "down", "right":
+		m.moveTargetFocus(1)
+		return true, nil
+	case "shift+tab", "up", "left":
+		m.moveTargetFocus(-1)
+		return true, nil
+	case "pgdown":
+		m.moveTargetFocus(m.targetVisibleRows())
+		return true, nil
+	case "pgup":
+		m.moveTargetFocus(-m.targetVisibleRows())
+		return true, nil
+	case "ctrl+right", "ctrl+left":
+		delta := 1
+		if msg.String() == "ctrl+left" {
+			delta = -1
+		}
+		m.targets.list.detailPage = min(max(0, m.targets.list.detailPage+delta), m.targetDetailPageCount()-1)
+		return true, nil
+	case "enter":
+		if target, ok := m.focusedTarget(); ok {
+			return true, m.activateTarget(target)
+		}
+		return true, nil
+
+	}
+	return false, nil
 }

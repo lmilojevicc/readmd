@@ -3,6 +3,8 @@ package pager
 import (
 	"fmt"
 	"os"
+
+	"readmd/internal/config"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -19,7 +21,10 @@ type Model struct {
 	width  int
 	height int
 
-	style string
+	style          string
+	picker         pickerDesign
+	readerWidth    int
+	tableCellWidth int
 
 	path     string
 	fw       *fileWatcher
@@ -48,7 +53,6 @@ type Model struct {
 	locations       []documentLocation
 	pendingLocation *documentLocation
 
-	srcView    bool
 	helpOpen   bool
 	helpTop    int
 	helpFilter string
@@ -63,12 +67,14 @@ type Model struct {
 
 func New(source, title string) *Model {
 	return &Model{
-		vp:       viewport.New(),
-		source:   source,
-		title:    title,
-		readFile: os.ReadFile,
-		openURL:  openExternalURL,
-		mouse:    true,
+		vp:             viewport.New(),
+		source:         source,
+		title:          title,
+		readFile:       os.ReadFile,
+		openURL:        openExternalURL,
+		mouse:          true,
+		readerWidth:    readerWidth,
+		tableCellWidth: tableCellWidth,
 	}
 }
 
@@ -80,6 +86,24 @@ func (m *Model) SetStyle(name string) error {
 		return err
 	}
 	m.style = st
+	return nil
+}
+
+// Configure applies validated startup settings before Init or any render command.
+func (m *Model) Configure(c config.Config) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if err := m.SetStyle(c.Style); err != nil {
+		return err
+	}
+	m.picker = pickerList
+	if c.Picker == "vimium" {
+		m.picker = pickerVimium
+	}
+	m.mouse, m.reader = c.Mouse, c.Reader
+	m.readerWidth, m.tableCellWidth = c.ReaderWidth, c.TableCellWidth
+	m.SetImages(ImageConfig{NoImages: !c.Images, NoRemote: !c.RemoteImages, DocDir: m.docDir()})
 	return nil
 }
 
@@ -118,10 +142,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncVPWidth()
 		m.syncVPHeight()
 		if resized {
-			if m.srcView {
-				m.clampXWidest()
-				return m, nil
-			}
 			return m, m.requestRender()
 		}
 		return m, nil
@@ -129,9 +149,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case renderedMsg:
 		m.stopTargets(true)
 		m.rendering = false
-		if m.srcView {
-			return m, nil
-		}
 		if msg.gen != m.gen {
 			return m, m.requestRender()
 		}
@@ -191,7 +208,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.handleTargetKey(msg)
 		}
 		// Snapshot before clearing an existing notice and exposing another row.
-		if msg.String() == "p" && !m.search.active && !m.tocOpen && !m.helpOpen && !m.srcView {
+		if msg.String() == "p" && !m.search.active && !m.tocOpen && !m.helpOpen {
 			m.openTargets()
 			return m, nil
 		}
@@ -213,7 +230,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// syncView installs a new line set (rendered or source) into the model.
+// syncView installs a new line set (rendered) into the model.
 // Order matters: refreshSearch runs before the pending anchor is consumed,
 // and x-clamping happens after widest is refreshed.
 func (m *Model) syncView(base, stripped []string, heads []heading, links []linkTarget) {
@@ -280,8 +297,6 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 		return m.backLocation()
 	case "o":
 		m.openTOC()
-	case "s":
-		return m.toggleSource()
 	case "/":
 		m.openSearch()
 	case "?":
@@ -300,9 +315,6 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "N":
 		m.jumpMatch(-1, false)
 	case "r":
-		if m.srcView {
-			return nil
-		}
 		m.reader = !m.reader
 		m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
 		m.syncVPWidth()
@@ -340,6 +352,9 @@ func (m *Model) chrome() viewChrome {
 }
 
 func (m *Model) syncVPHeight() {
+	if m.targets.active && (m.flash != m.targets.savedFlash || m.errMsg != m.targets.savedError) {
+		m.stopTargets(true)
+	}
 	if m.height <= 0 {
 		return
 	}
@@ -362,8 +377,8 @@ func (m *Model) syncVPHeight() {
 // column. Lines retain their unwrapped content width; the margin is a
 // display-only prefix (see View).
 func (m *Model) readerFrame() (on bool, effW int) {
-	if m.reader && !m.srcView {
-		w, _ := readerGeom(m.width, true)
+	if m.reader {
+		w, _ := m.readerGeom(true)
 		return true, w
 	}
 	return false, 0
@@ -400,21 +415,18 @@ func (m *Model) quitCmd() tea.Cmd {
 // arrival and this is retried then.
 func (m *Model) requestRender() tea.Cmd {
 	m.stopTargets(true)
-	if m.srcView {
-		return nil
-	}
 	m.gen++
 	if m.rendering {
 		return nil
 	}
 	src := m.source
 	m.rendering = true
-	w, _ := readerGeom(m.width, m.reader)
+	w, _ := m.readerGeom(m.reader)
 	wrapWidth := w
 	if m.reader {
 		wrapWidth = 0
 	}
-	gen, st := m.gen, m.style
+	gen, st, cellWidth := m.gen, m.style, m.tableCellWidth
 	o := imgCtx{
 		Enabled:  m.gfx,
 		NoRemote: m.imgCfg.NoRemote,
@@ -423,7 +435,7 @@ func (m *Model) requestRender() tea.Cmd {
 		store:    m.store,
 	}
 	return func() tea.Msg {
-		out, pending, g, err := renderDoc(o, src, wrapWidth, st)
+		out, pending, g, err := renderDoc(o, src, wrapWidth, st, cellWidth)
 		if err != nil {
 			return renderedMsg{err: err, gen: gen}
 		}
@@ -435,7 +447,7 @@ func (m *Model) requestRender() tea.Cmd {
 		return renderedMsg{
 			content: out, gen: gen,
 			heads: heads, stripped: stripped, links: links, pending: pending,
-			gfx: g, warn: warnFrom(m.store),
+			gfx: g, warn: warnFrom(o.store),
 		}
 	}
 }
@@ -484,7 +496,7 @@ func (m *Model) View() tea.View {
 			body = m.tocPreviewBody()
 		}
 		if on, _ := m.readerFrame(); on {
-			_, margin := readerGeom(m.width, true)
+			_, margin := m.readerGeom(true)
 			body = padMargin(body, margin)
 		}
 		switch {
@@ -506,7 +518,14 @@ func (m *Model) View() tea.View {
 		rows = append(rows, m.searchPrompt())
 	}
 	if m.targets.active {
-		rows = []string{m.applyTargetPanel(strings.Join(rows, "\n"))}
+		body := strings.Join(rows, "\n")
+		switch m.picker {
+		case pickerList:
+			body = m.applyTargetPanel(body)
+		case pickerVimium:
+			body = m.applyTargetPlan(body, m.targetPlan())
+		}
+		rows = []string{body}
 	}
 	rows = append(rows, m.statusBar())
 	v := tea.NewView(strings.Join(rows, "\n"))
@@ -523,13 +542,15 @@ func (m *Model) View() tea.View {
 // the help chip first, then the percent; the brand chip is never truncated.
 func (m *Model) statusBar() string {
 	if m.targets.active {
-		return m.targetStatus()
+		switch m.picker {
+		case pickerVimium:
+			return m.targetFooter()
+		default:
+			return m.targetStatus()
+		}
 	}
 	info := "render"
-	if m.srcView {
-		info = "source"
-	}
-	if m.reader && !m.srcView {
+	if m.reader {
 		info += " reader"
 	}
 	if m.vp.XOffset() > 0 {

@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/yuin/goldmark v1.7.8
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

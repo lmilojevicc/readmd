@@ -252,9 +252,5 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 	if edited {
 		m.flash = "edited"
 	}
-	if m.srcView {
-		m.applySource()
-		return nil
-	}
 	return m.requestRender()
 }

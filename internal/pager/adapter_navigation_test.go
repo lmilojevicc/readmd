@@ -87,7 +87,7 @@ func TestAdapterNavigationAcrossBlocks(t *testing.T) {
 			for _, key := range []string{"r", "s", "s", "r"} {
 				settle(t, m, press(m, key))
 			}
-			if m.srcView || m.reader || countFootnoteTargets(m.links) != 1 {
+			if m.reader || countFootnoteTargets(m.links) != 1 {
 				t.Fatal("representation round trip lost metadata")
 			}
 			nm, cmd := m.Update(tea.WindowSizeMsg{Width: w + 10, Height: 16})
@@ -104,14 +104,12 @@ func TestAdapterNavigationAcrossBlocks(t *testing.T) {
 }
 
 func TestAdapterUnboundTAndPrompts(t *testing.T) {
-	for _, mode := range []string{"render", "reader", "source", "search", "outline filter", "help filter"} {
+	for _, mode := range []string{"render", "reader", "search", "outline filter", "help filter"} {
 		t.Run(mode, func(t *testing.T) {
 			m := newRenderedModel(t, "# Title\n\n| A |\n| - |\n| value |\n", 60, 20)
 			switch mode {
 			case "reader":
 				settle(t, m, press(m, "r"))
-			case "source":
-				press(m, "s")
 			case "search":
 				press(m, "/")
 			case "outline filter":
@@ -277,12 +275,12 @@ func TestAdapterMultilineTableTargets(t *testing.T) {
 					t.Fatal("mouse/hints mutated cache")
 				}
 				settle(t, m, press(m, "s"))
-				if !m.srcView || m.source != src {
-					t.Fatal("source representation changed raw document")
+				if m.source != src {
+					t.Fatal("unbound s changed raw document")
 				}
 				settle(t, m, press(m, "s"))
 				if strings.Join(m.base, "\n") != original || len(m.links) != 6 {
-					t.Fatal("source round trip changed render/targets")
+					t.Fatal("unbound s changed render/targets")
 				}
 			})
 		}

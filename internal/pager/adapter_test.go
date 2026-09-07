@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func stockNatural(t *testing.T, src, style string) string {
+func stockNatural(t *testing.T, src, style string, extra ...glamour.TermRendererOption) string {
 	t.Helper()
 	opts := []glamour.TermRendererOption{glamour.WithWordWrap(0), glamour.WithTableWrap(false)}
 	if style == paletteStyleName {
@@ -21,6 +21,7 @@ func stockNatural(t *testing.T, src, style string) string {
 	} else {
 		opts = append(opts, glamour.WithStandardStyle(style))
 	}
+	opts = append(opts, extra...)
 	r, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +109,14 @@ func TestAdapterCorpusReaderMatchesBaseline(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := stockNatural(t, string(src), styles.NoTTYStyle)
+			var quoteLines []glamour.TermRendererOption
+			// These fixtures contain multiline quotes: the approved quote policy
+			// matches stock's preserved-newline option, not its flattened default.
+			switch filepath.Base(f) {
+			case "alerts.md", "gfm-alerts.md":
+				quoteLines = append(quoteLines, glamour.WithPreservedNewLines())
+			}
+			want := stockNatural(t, string(src), styles.NoTTYStyle, quoteLines...)
 			if withoutTableFrames(got) != ansi.Strip(want) {
 				t.Fatalf("reader differs from baseline stock output\ngot=%q\nwant=%q", got, want)
 			}

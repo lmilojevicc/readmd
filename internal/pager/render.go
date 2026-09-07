@@ -151,10 +151,18 @@ const readerWidth = 120
 // readerGeom returns the viewport width and display-only left margin.
 // Off = full width, no margin.
 func readerGeom(vw int, on bool) (w, margin int) {
+	return readerGeometry(vw, on, readerWidth)
+}
+
+func (m *Model) readerGeom(on bool) (w, margin int) {
+	return readerGeometry(m.width, on, m.readerWidth)
+}
+
+func readerGeometry(vw int, on bool, preference int) (w, margin int) {
 	if !on {
 		return vw, 0
 	}
-	w = min(readerWidth, max(1, vw-2))
+	w = max(1, min(preference, vw-2))
 	return w, max(0, (vw-w)/2)
 }
 
@@ -175,18 +183,18 @@ func Render(source string, width int) (string, error) {
 	return out, err
 }
 
-func renderDoc(o imgCtx, source string, width int, style string) (string, []string, docGfx, error) {
+func renderDoc(o imgCtx, source string, width int, style string, cellWidths ...int) (string, []string, docGfx, error) {
 	if o.Width <= 0 {
 		o.Width = width
 	}
-	out, pending, g, err := renderStyled(o, source, width, style, true)
+	out, pending, g, err := renderStyled(o, source, width, style, true, cellWidths...)
 	if errors.Is(err, errAlertSplice) {
-		return renderStyled(o, source, width, style, false)
+		return renderStyled(o, source, width, style, false, cellWidths...)
 	}
 	return out, pending, g, err
 }
 
-func renderStyled(o imgCtx, source string, width int, style string, alertsOn bool) (string, []string, docGfx, error) {
+func renderStyled(o imgCtx, source string, width int, style string, alertsOn bool, cellWidths ...int) (string, []string, docGfx, error) {
 	src := sanitize(source)
 	src = expandMermaid(src)
 	src = substituteMath(src)
@@ -219,7 +227,7 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 	for _, a := range alerts {
 		intrinsic[a.startTok], intrinsic[a.endTok] = true, true
 	}
-	out, err := renderGlamour(src, width, style, intrinsic)
+	out, err := renderGlamour(src, width, style, intrinsic, cellWidths...)
 	if err != nil {
 		return "", nil, docGfx{}, err
 	}
@@ -229,7 +237,7 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 
 // Each render owns its AST and renderers. References resolve before nodes move
 // into temporary roots; complete containers retain their parsing context.
-func renderGlamour(src string, width int, style string, intrinsic map[string]bool) (string, error) {
+func renderGlamour(src string, width int, style string, intrinsic map[string]bool, cellWidths ...int) (string, error) {
 	options := glamansi.Options{TableWrap: boolPtr(false), PreserveNewLines: true}
 	if style == paletteStyleName {
 		registerPaletteChroma()
@@ -250,12 +258,17 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 	space := text.NewSegment(len(source), len(source)+1)
 	source = append(source, ' ')
 	// Glamour's preserved-newline option includes soft breaks. Resolve those
-	// to spaces in this private AST, leaving explicit Markdown hard breaks.
+	// to spaces outside blockquotes, leaving quote lines and Markdown hard breaks.
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if n.Kind() == ast.KindCodeSpan {
 			return ast.WalkSkipChildren, nil
 		}
 		if n, ok := n.(*ast.Text); entering && ok && n.SoftLineBreak() && !n.HardLineBreak() {
+			for parent := n.Parent(); parent != nil; parent = parent.Parent() {
+				if parent.Kind() == ast.KindBlockquote {
+					return ast.WalkContinue, nil
+				}
+			}
 			n.SetSoftLineBreak(false)
 			n.Parent().InsertAfter(n.Parent(), n, ast.NewTextSegment(space))
 		}
@@ -283,7 +296,7 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 			fragment.Styles.Document.BlockSuffix = ""
 		}
 		if table, ok := node.(*extast.Table); ok {
-			rendered, err := renderTable(table, source, fragment, tableID)
+			rendered, err := renderTable(table, source, fragment, tableID, cellWidths...)
 			if err != nil {
 				return "", err
 			}

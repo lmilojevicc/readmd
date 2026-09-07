@@ -203,6 +203,7 @@ func TestTargetModeEntryKey(t *testing.T) {
 	}{
 		{"p", true},
 		{"t", false},
+		{"s", false},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			m := newHintModel(t, 60, 12, []string{linkLine("one", "https://one.example", "link")})
@@ -235,7 +236,7 @@ func TestTargetModePromptAndOverlaySuppression(t *testing.T) {
 		{"help", []string{"?"}},
 		{"outline", []string{"o"}},
 	} {
-		for _, key := range []string{"p", "t"} {
+		for _, key := range []string{"p", "t", "s"} {
 			t.Run(tc.name+"/"+key, func(t *testing.T) {
 				m := newRenderedModel(t, "# Topic\n\n[link](https://one.example)\n", 60, 12)
 				for _, entry := range tc.keys {
@@ -444,7 +445,7 @@ func TestTargetModeUnavailableStates(t *testing.T) {
 		want  string
 	}{
 		{"no links", func(*Model) {}, "no visible targets"},
-		{"source view", func(m *Model) { m.srcView = true }, "targets unavailable"},
+		{"render pending", func(m *Model) { m.rendering = true }, "targets unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newHintModel(t, 60, 12, []string{"plain text"})

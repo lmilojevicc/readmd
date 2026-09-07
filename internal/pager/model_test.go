@@ -193,11 +193,6 @@ func TestStatusBarStates(t *testing.T) {
 			settle(t, m, press(m, "r"))
 			press(m, "l")
 		}, "render reader →8"},
-		{"source", func(_ *testing.T, m *Model) { press(m, "s") }, "source"},
-		{"source offset", func(_ *testing.T, m *Model) {
-			press(m, "s")
-			press(m, "l")
-		}, "source →8"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := New(longDoc, "doc.md")
@@ -209,7 +204,7 @@ func TestStatusBarStates(t *testing.T) {
 			if !strings.Contains(bar, tc.want) {
 				t.Fatalf("status %q lacks %q", bar, tc.want)
 			}
-			for _, obsolete := range []string{"wrap", "nowrap", "wide"} {
+			for _, obsolete := range []string{"wrap", "nowrap", "wide", "source"} {
 				if strings.Contains(bar, obsolete) {
 					t.Fatalf("status contains obsolete layout label %q: %q", obsolete, bar)
 				}

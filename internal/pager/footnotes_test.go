@@ -263,25 +263,24 @@ func TestFootnoteLocationStackOrderAndStateRestore(t *testing.T) {
 	}
 }
 
-func TestFootnoteBackRestoresRepresentation(t *testing.T) {
+func TestFootnoteBackRestoresReader(t *testing.T) {
 	src := "ref[^1]\n\n| A | B |\n| - | - |\n| x | y |\n\n[^1]: note body\n"
 	m := newRenderedModel(t, src, 140, 16)
 	settle(t, m, press(m, "r"))
 	original := m.currentLocation()
 	m.jumpFootnote(linkTarget{kind: targetFootnote, footnote: "1", definition: targetRegion{line: len(m.stripped) - 2, start: 2, end: 6}})
 	settle(t, m, press(m, "r"))
-	press(m, "s")
 	cmd := pressKey(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if cmd == nil {
 		t.Fatal("restoring rendered representation must re-render")
 	}
 	settle(t, m, cmd)
-	if m.srcView || !m.reader || m.vp.YOffset() != original.y || m.vp.XOffset() != original.x {
-		t.Fatalf("restored state source=%v reader=%v x/y=%d/%d want %d/%d", m.srcView, m.reader, m.vp.XOffset(), m.vp.YOffset(), original.x, original.y)
+	if !m.reader || m.vp.YOffset() != original.y || m.vp.XOffset() != original.x {
+		t.Fatalf("restored state reader=%v x/y=%d/%d want %d/%d", m.reader, m.vp.XOffset(), m.vp.YOffset(), original.x, original.y)
 	}
 }
 
-func TestFootnoteTargetsRecomputeAcrossReaderAndSource(t *testing.T) {
+func TestFootnoteTargetsRecomputeAcrossReaderAndStyle(t *testing.T) {
 	src := "ref[^1]\n\n| A | B |\n| - | - |\n| x | y |\n\n[^1]: note body\n"
 	m := newRenderedModel(t, src, 60, 12)
 	if got := countFootnoteTargets(m.links); got != 1 {
@@ -291,18 +290,6 @@ func TestFootnoteTargetsRecomputeAcrossReaderAndSource(t *testing.T) {
 	settle(t, m, press(m, "r"))
 	if got := countFootnoteTargets(m.links); got != 1 {
 		t.Fatalf("reader footnotes=%d", got)
-	}
-	press(m, "s")
-	if m.srcView && len(m.links) != 0 {
-		t.Fatalf("source view must invalidate targets: %#v", m.links)
-	}
-	press(m, "p")
-	if m.targets.active || m.flash != "targets unavailable" {
-		t.Fatalf("source target mode active=%v flash=%q", m.targets.active, m.flash)
-	}
-	settle(t, m, press(m, "s"))
-	if got := countFootnoteTargets(m.links); got != 1 {
-		t.Fatalf("restored footnotes=%d", got)
 	}
 	if err := m.SetStyle("notty"); err != nil {
 		t.Fatal(err)

@@ -104,12 +104,6 @@ func TestCursorSrcLineNearestHeadingAboveTop(t *testing.T) {
 		t.Fatalf("below Beta: cursor line %d, want 35 (Beta+1)", got)
 	}
 
-	settle(t, m, press(m, "s"))
-	betaSrc := findLine(m.stripped, "## Beta")
-	m.vp.SetYOffset(betaSrc)
-	if got := m.cursorSrcLine(); got != 35 {
-		t.Fatalf("source view below Beta: cursor line %d, want 35", got)
-	}
 }
 
 func TestEditedReloadFlashAndNoDoubleReload(t *testing.T) {

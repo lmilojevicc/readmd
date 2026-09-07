@@ -96,7 +96,7 @@ func TestMapHeadings(t *testing.T) {
 			want:  []int{0, 1},
 		},
 		{
-			name:  "empty heading anchors at previous heading like source mode",
+			name:  "empty heading anchors at previous heading using source heading anchors",
 			lines: []string{"", " ## Real", "", "body", ""},
 			texts: []string{"Real", ""},
 			want:  []int{1, 1},
@@ -437,19 +437,17 @@ func TestTOCPreviewExposureAtRepresentativeHeights(t *testing.T) {
 	}
 }
 
-func TestTOCPreviewCommitAndCancelAcrossRepresentations(t *testing.T) {
+func TestTOCPreviewCommitAndCancelAcrossReaderModes(t *testing.T) {
 	doc := "# Alpha\n\n" + strings.Repeat("x", 200) + "\n\n" +
 		strings.Repeat("alpha body\n\n", 6) + "## Beta\n\n" +
 		strings.Repeat("beta body\n\n", 6) + "## Gamma\n\nfinal highlighted body\n"
-	for _, mode := range []string{"regular", "reader", "source"} {
+	for _, mode := range []string{"regular", "reader"} {
 		for _, action := range []string{"cancel", "commit"} {
 			t.Run(mode+" "+action, func(t *testing.T) {
 				m := newRenderedModel(t, doc, 140, 16)
 				switch mode {
 				case "reader":
 					settle(t, m, press(m, "r"))
-				case "source":
-					press(m, "s")
 				}
 				m.vp.SetYOffset(m.heads[1].line)
 				m.vp.SetXOffset(7)

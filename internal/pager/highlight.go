@@ -44,7 +44,12 @@ func (m *Model) applySearchView() {
 			l = highlightLine(l, g.sps, g.cur)
 		}
 		if sps := targets[i]; len(sps) > 0 {
-			l = highlightTargetLine(l, sps)
+			switch m.picker {
+			case pickerList:
+				l = highlightTargetLine(l, sps)
+			case pickerVimium:
+				l = underlineTargets(l, sps)
+			}
 		}
 		b.WriteString(l)
 		if i < len(m.base)-1 {

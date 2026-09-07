@@ -277,25 +277,15 @@ func TestSearchHighlightLifecycle(t *testing.T) {
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEscape})
 }
 
-func TestSearchHighlightsSourceView(t *testing.T) {
+func TestSearchHighlightsReload(t *testing.T) {
 	m := newRenderedModel(t, srcDoc, 60, 12)
-	press(m, "s")
 	press(m, "/")
 	typeQuery(m, "beta")
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	body := bodyOf(m)
 	if countSGRWith(body, "43") == 0 {
-		t.Fatal("source view highlights matches")
-	}
-	for _, m := range hlSGRRe.FindAllStringSubmatch(body, -1) {
-		for _, p := range strings.Split(m[1], ";") {
-			switch p {
-			case "", "0", "30", "43", "45":
-			default:
-				t.Fatalf("source view must stay plain outside highlights, found SGR param %q:\n%q", p, body)
-			}
-		}
+		t.Fatal("rendered view highlights matches")
 	}
 	if m.search.count != 13 {
 		t.Fatalf("search must count raw occurrences: %d, want 13", m.search.count)
@@ -307,7 +297,7 @@ func TestSearchHighlightsSourceView(t *testing.T) {
 	body = bodyOf(m)
 	if countSGRWith(body, "43")+countSGRWith(body, "45") == 0 ||
 		!strings.Contains(ansi.Strip(body), "beta fresh") {
-		t.Fatal("reload in source view re-derives highlights on new content")
+		t.Fatal("reload in rendered view re-derives highlights on new content")
 	}
 	if strings.Contains(ansi.Strip(body), "gamma tail") {
 		t.Fatal("reload must replace old content")
@@ -316,8 +306,7 @@ func TestSearchHighlightsSourceView(t *testing.T) {
 
 func TestHighlightSurvivesHorizontalSlice(t *testing.T) {
 	doc := strings.Repeat("x", 70) + " needle " + strings.Repeat("y", 70) + "\n"
-	m := newRenderedModel(t, doc, 40, 10)
-	press(m, "s")
+	m := newHintModel(t, 40, 10, []string{strings.TrimSuffix(doc, "\n")})
 	press(m, "/")
 	typeQuery(m, "needle")
 	pressKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})

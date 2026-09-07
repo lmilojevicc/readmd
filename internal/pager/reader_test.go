@@ -264,8 +264,8 @@ func TestReaderToggleVsReload(t *testing.T) {
 	}
 
 	press(m, "s")
-	if cmd := press(m, "r"); cmd != nil || !m.reader {
-		t.Fatalf("r must be frozen in source view (cmd=%v reader=%v)", cmd, m.reader)
+	if cmd := press(m, "r"); cmd == nil || m.reader {
+		t.Fatalf("s must not block reader toggle (cmd=%v reader=%v)", cmd, m.reader)
 	}
 }
 

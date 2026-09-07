@@ -426,15 +426,6 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 		if m.mouse || m.flash != "mouse off" {
 			t.Fatalf("m must disable mouse capture: mouse=%v flash=%q", m.mouse, m.flash)
 		}
-	case "s":
-		press(m, key)
-		if !m.srcView {
-			t.Fatal("s must enter source view")
-		}
-		settle(t, m, press(m, key))
-		if m.srcView {
-			t.Fatal("s must restore rendered view")
-		}
 	case "o":
 		press(m, key)
 		if !m.tocOpen {

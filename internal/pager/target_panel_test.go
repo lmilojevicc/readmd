@@ -49,7 +49,7 @@ func TestTargetPanelAllRowsReachableAndFrozen(t *testing.T) {
 				if !ok || target.label != hintLabels(60)[i] {
 					t.Fatalf("focus %d = %#v", i, target)
 				}
-				row := m.targetPanelY() + 1 + m.targets.focus - m.targets.top
+				row := m.targetPanelY() + 1 + m.targets.list.focus - m.targets.list.top
 				hit, ok := m.targetPanelHit(2, row)
 				if !ok || hit.label != target.label {
 					t.Fatalf("focused row not visible: %d %#v", row, hit)
@@ -60,15 +60,15 @@ func TestTargetPanelAllRowsReachableAndFrozen(t *testing.T) {
 				pressKey(m, tea.KeyPressMsg{Code: tea.KeyTab})
 			}
 			pressKey(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-			if m.targets.focus != 58 {
-				t.Fatalf("Shift+Tab focus=%d", m.targets.focus)
+			if m.targets.list.focus != 58 {
+				t.Fatalf("Shift+Tab focus=%d", m.targets.list.focus)
 			}
 			sendMouseWheel(m, tea.MouseWheelUp)
-			if m.targets.focus != 55 {
+			if m.targets.list.focus != 55 {
 				t.Fatal("wheel did not move list focus")
 			}
 			pressKey(m, tea.KeyPressMsg{Code: tea.KeyPgUp})
-			if m.targets.focus != 55-m.targetVisibleRows() {
+			if m.targets.list.focus != 55-m.targetVisibleRows() {
 				t.Fatal("page did not move list focus")
 			}
 			press(m, "a")
@@ -160,11 +160,11 @@ func TestTargetPanelDescriptionsAndDetailPaging(t *testing.T) {
 					t.Fatalf("full focused destination unavailable: %q", visible.String())
 				}
 				pressKey(m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
-				if m.targets.detailPage != max(0, pages-2) {
+				if m.targets.list.detailPage != max(0, pages-2) {
 					t.Fatal("previous detail page failed")
 				}
 				pressKey(m, tea.KeyPressMsg{Code: tea.KeyDown})
-				if m.targets.focus != 1 || m.targets.detailPage != 0 {
+				if m.targets.list.focus != 1 || m.targets.list.detailPage != 0 {
 					t.Fatal("new focus did not reset detail page")
 				}
 			})
@@ -270,7 +270,7 @@ func TestTargetPanelFocusHighlightComposesWithSearch(t *testing.T) {
 			for _, code := range []rune{tea.KeyDown, tea.KeyUp} {
 				pressKey(m, tea.KeyPressMsg{Code: code})
 				spans := m.targetSpans()[0]
-				if len(spans) != 1 || spans[0].start != m.targets.targets[m.targets.focus].regions[0].start {
+				if len(spans) != 1 || spans[0].start != m.targets.targets[m.targets.list.focus].regions[0].start {
 					t.Fatal("more than focused occurrence highlighted")
 				}
 				content := m.vp.GetContent()
@@ -325,7 +325,7 @@ func TestTargetPanelSmallTerminals(t *testing.T) {
 }
 
 func TestTargetPanelInvalidation(t *testing.T) {
-	for _, event := range []string{"resize height", "resize width", "reload", "reload error", "render", "render error", "opener success", "opener error", "source", "request render", "ctrl+c"} {
+	for _, event := range []string{"resize height", "resize width", "reload", "reload error", "render", "render error", "opener success", "opener error", "request render", "ctrl+c"} {
 		t.Run(event, func(t *testing.T) {
 			m := crowdedTargetModel(t, 80)
 			press(m, "p")
@@ -347,8 +347,6 @@ func TestTargetPanelInvalidation(t *testing.T) {
 				msg = openedURLMsg{dest: "https://example.com"}
 			case "opener error":
 				msg = openedURLMsg{err: errors.New("open failed")}
-			case "source":
-				m.toggleSource()
 			case "request render":
 				m.requestRender()
 			case "ctrl+c":

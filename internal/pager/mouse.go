@@ -48,6 +48,10 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		return nil
 	}
 	if m.targets.active {
+		switch m.picker {
+		case pickerVimium:
+			return nil
+		}
 		switch msg.Button {
 		case tea.MouseWheelDown:
 			m.moveTargetFocus(mouseWheelStep)
@@ -94,10 +98,21 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	if !m.mouse || msg.Button != tea.MouseLeft || msg.Mod.Contains(tea.ModShift) ||
-		m.search.active || m.tocOpen || m.helpOpen || m.srcView {
+		m.search.active || m.tocOpen || m.helpOpen {
 		return nil
 	}
-	if m.targets.active && msg.Y >= m.targetPanelY() {
+	if m.targets.active && m.picker == pickerVimium {
+		plan := m.targetPlan()
+		for _, hit := range plan.hits {
+			if msg.Y == hit.line && msg.X >= hit.start && msg.X < hit.end {
+				return m.activateTarget(hit.target)
+			}
+		}
+		if msg.Y >= plan.surfaceTop {
+			return nil
+		}
+	}
+	if m.targets.active && m.picker == pickerList && msg.Y >= m.targetPanelY() {
 		if target, ok := m.targetPanelHit(msg.X, msg.Y); ok {
 			return m.activateTarget(target)
 		}
@@ -115,7 +130,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 func (m *Model) mouseTargetAt(x, y int) (hintTarget, bool) {
 	margin := 0
 	if on, _ := m.readerFrame(); on {
-		_, margin = readerGeom(m.width, true)
+		_, margin = m.readerGeom(true)
 		if x < margin || x >= margin+m.vp.Width() {
 			return hintTarget{}, false
 		}
@@ -138,6 +153,9 @@ func (m *Model) mouseTargetAt(x, y int) (hintTarget, bool) {
 	links := m.links
 	if m.targets.active {
 		candidates := m.targets.targets
+		if m.picker == pickerVimium {
+			candidates = m.targetCandidates()
+		}
 		links = make([]linkTarget, len(candidates))
 		for i := range candidates {
 			links[i] = candidates[i].linkTarget

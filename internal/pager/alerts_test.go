@@ -140,8 +140,8 @@ func TestPlainQuoteMagentaBar(t *testing.T) {
 			break
 		}
 	}
-	if first != railSeq(quoteBarSGR)+"hello world" {
-		t.Errorf("plain quote line = %q, want %q", first, railSeq(quoteBarSGR)+"hello world")
+	if first != railSeq(quoteBarSGR)+"hello" || !strings.Contains(out, railSeq(quoteBarSGR)+"hello\n"+railSeq(quoteBarSGR)+"world") {
+		t.Errorf("plain quote lines lost separate rails: %q", out)
 	}
 	if strings.Contains(out, "\x1b[36m") {
 		t.Error("old cyan blockquote color still present")

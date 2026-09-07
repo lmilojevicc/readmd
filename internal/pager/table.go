@@ -17,7 +17,11 @@ const tableCellWidth = 40
 const tableLinkPrefix = "readmd-table-"
 
 // Only top-level tables use this adapter. Containers remain whole stock blocks.
-func renderTable(node *extast.Table, source []byte, options glamansi.Options, id int) (string, error) {
+func renderTable(node *extast.Table, source []byte, options glamansi.Options, id int, cellWidths ...int) (string, error) {
+	cellWidth := tableCellWidth
+	if len(cellWidths) > 0 {
+		cellWidth = cellWidths[0]
+	}
 	options.InlineTableLinks = true
 	r := glamansi.NewRenderer(options)
 	ctx := glamansi.NewRenderContext(options)
@@ -54,7 +58,7 @@ func renderTable(node *extast.Table, source []byte, options glamansi.Options, id
 			for _, line := range strings.Split(cells[col], "\n") {
 				preferred := ansi.StringWidth(line)
 				if row.Kind() != extast.KindTableHeader {
-					preferred = min(preferred, tableCellWidth)
+					preferred = min(preferred, cellWidth)
 				}
 				widths[col] = max(widths[col], preferred)
 				for _, word := range tableWords(line) {

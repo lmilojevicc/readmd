@@ -281,7 +281,6 @@ func TestMouseTargetClicksSuppressedByOverlaysAndRows(t *testing.T) {
 		{"search prompt", func(m *Model) { m.search.active = true }},
 		{"toc", func(m *Model) { m.tocOpen = true }},
 		{"help", func(m *Model) { m.helpOpen = true }},
-		{"source", func(m *Model) { m.srcView = true }},
 		{"mouse disabled", func(m *Model) { m.mouse = false }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

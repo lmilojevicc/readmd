@@ -27,14 +27,14 @@ type sourceFootnoteMarker struct {
 type sourceRange struct{ start, end int }
 
 type documentLocation struct {
-	y, x           int
-	reader, source bool
+	y, x   int
+	reader bool
 }
 
 func (m *Model) currentLocation() documentLocation {
 	return documentLocation{
 		y: m.vp.YOffset(), x: m.vp.XOffset(),
-		reader: m.reader, source: m.srcView,
+		reader: m.reader,
 	}
 }
 
@@ -61,14 +61,10 @@ func (m *Model) backLocation() tea.Cmd {
 	last := len(m.locations) - 1
 	loc := m.locations[last]
 	m.locations = m.locations[:last]
-	changed := m.reader != loc.reader || m.srcView != loc.source
-	m.reader, m.srcView = loc.reader, loc.source
+	changed := m.reader != loc.reader
+	m.reader = loc.reader
 	m.pendingLocation = &loc
 	m.syncVPWidth()
-	if loc.source {
-		m.applySource()
-		return nil
-	}
 	if changed {
 		return m.requestRender()
 	}
