@@ -207,16 +207,15 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 	if alertsOn && style == paletteStyleName {
 		src, alerts = insertAlertSentinels(src)
 	}
-	draw := func(f figure) string { return renderFigure(f, max(1, o.Width-2)) }
 	post := func(rendered string) (string, docGfx, error) {
 		rendered, ok := spliceAlerts(rendered, alerts)
 		if !ok {
 			return "", docGfx{}, errAlertSplice
 		}
 		g := docGfx{}
-		rendered, ok = spliceFigures(rendered, figs, draw)
+		rendered, ok = spliceFigures(rendered, figs, renderFigure)
 		if ok && len(figs) > 0 {
-			g = gfxControls(o.store, figs, max(1, o.Width-2))
+			g = gfxControls(o.store, figs)
 		}
 		return rendered, g, nil
 	}
@@ -259,7 +258,8 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 	source = append(source, ' ')
 	// Glamour's preserved-newline option includes soft breaks. Resolve those
 	// to spaces outside blockquotes, leaving quote lines and Markdown hard breaks.
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if n.Kind() == ast.KindCodeSpan {
 			return ast.WalkSkipChildren, nil
 		}

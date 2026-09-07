@@ -122,7 +122,10 @@ func TestLoadBootstrapAndPreserve(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", root)
-			path, _ := Path()
+			path, err := Path()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if body != "" {
 				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 					t.Fatal(err)
@@ -144,7 +147,10 @@ func TestLoadBootstrapAndPreserve(t *testing.T) {
 			if err != nil || string(data) != want {
 				t.Fatalf("content=%q err=%v", data, err)
 			}
-			expected, _ := Parse([]byte(want))
+			expected, err := Parse([]byte(want))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if c != expected {
 				t.Fatalf("config=%+v", c)
 			}
@@ -155,7 +161,10 @@ func TestLoadBootstrapAndPreserve(t *testing.T) {
 				}
 			}
 			_, err = Load(&warnings)
-			data, _ = os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err = os.ReadFile(path)
 			if err != nil || string(data) != want {
 				t.Fatal("second load replaced existing file")
 			}
@@ -169,7 +178,10 @@ func TestLoadErrorsAndWarnings(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", root)
-			path, _ := Path()
+			path, err := Path()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -211,7 +223,11 @@ func TestLoadErrorsAndWarnings(t *testing.T) {
 				if err := os.Chmod(dir, 0500); err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { os.Chmod(dir, 0700) })
+				t.Cleanup(func() {
+					if err := os.Chmod(dir, 0700); err != nil {
+						t.Error(err)
+					}
+				})
 				warn = true
 			case "missing home":
 				t.Setenv("HOME", "")
@@ -244,8 +260,12 @@ func TestLoadCreationRace(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "readmd", "config.yaml")
 			expected := Defaults()
 			if existing {
-				os.MkdirAll(filepath.Dir(path), 0700)
-				os.WriteFile(path, []byte("mouse: false\n"), 0600)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("mouse: false\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
 				expected.Mouse = false
 			}
 			const count = 16
@@ -273,7 +293,10 @@ func TestLoadCreationRace(t *testing.T) {
 				t.Fatalf("temporary files leaked: %v %v", entries, err)
 			}
 			if existing {
-				data, _ := os.ReadFile(path)
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if string(data) != "mouse: false\n" {
 					t.Fatal("race replaced existing file")
 				}

@@ -24,7 +24,8 @@ func expandMermaid(src string) string {
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var edits []edit
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}

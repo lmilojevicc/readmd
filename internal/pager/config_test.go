@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"readmd/internal/config"
+
+	"github.com/lmilojevicc/readmd/internal/config"
 )
 
 func TestConfigureStartup(t *testing.T) {

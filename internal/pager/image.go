@@ -13,7 +13,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,13 +30,15 @@ import (
 )
 
 const (
-	cellW        = 10
-	cellH        = 20
-	maxDim       = 1000
-	maxSrcDim    = 4000
-	chunkSize    = 4096
-	maxFetchSize = 32 << 20
-	fetchTimeout = 10 * time.Second
+	// Fallback until the terminal reports valid cell dimensions in pixels.
+	cellW         = 10
+	cellH         = 20
+	maxCellPixels = 1000
+	maxDim        = 1000
+	maxSrcDim     = 4000
+	chunkSize     = 4096
+	maxFetchSize  = 32 << 20
+	fetchTimeout  = 10 * time.Second
 
 	maxFetchConcurrent = 4
 	// rowcolumn-diacritics.txt defines at least 255 entries in every kitty
@@ -65,11 +66,12 @@ type ImageConfig struct {
 }
 
 type imgCtx struct {
-	Enabled  bool
-	NoRemote bool
-	Dir      string
-	Width    int
-	store    *imageStore
+	Enabled               bool
+	NoRemote              bool
+	Dir                   string
+	Width                 int
+	CellWidth, CellHeight int
+	store                 *imageStore
 }
 
 type imgData struct {
@@ -81,10 +83,10 @@ type imgData struct {
 // image id the pixel data was transmitted under; several figures may share an
 // id when the same image appears more than once.
 type figure struct {
-	token string
-	orig  string
-	id    int
-	w, h  int
+	token      string
+	orig       string
+	id         int
+	cols, rows int
 }
 
 type imgRef struct {
@@ -275,9 +277,9 @@ func saveRemote(path string, b []byte) error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }() // Best-effort cleanup, including after rename.
 	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // Preserve the write error.
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -298,7 +300,8 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 	var figs []figure
 	var pending []string
 	seen := map[string]bool{}
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
@@ -334,7 +337,7 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 			}
 			return ast.WalkContinue, nil
 		}
-		cols, rows := fitCells(ref.data.w, ref.data.h, max(1, o.Width-2))
+		cols, rows := fitCells(ref.data.w, ref.data.h, max(1, o.Width-2), o.CellWidth, o.CellHeight)
 		if cols > maxDiacritic || rows > maxDiacritic {
 			return ast.WalkContinue, nil
 		}
@@ -350,8 +353,8 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 			token: token,
 			orig:  strings.TrimSuffix(src[start:end], "\n"),
 			id:    ref.id,
-			w:     ref.data.w,
-			h:     ref.data.h,
+			cols:  cols,
+			rows:  rows,
 		})
 		return ast.WalkContinue, nil
 	})
@@ -424,26 +427,30 @@ func readCapped(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // Read-only file; no pending writes.
 	return io.ReadAll(io.LimitReader(f, maxFetchSize+1))
 }
 
-// fitCells maps natural pixel dimensions to terminal cells without ever
-// upscaling: each dimension floors to whole cells, then the pair shrinks
-// proportionally (floored) when wider than the available columns.
-func fitCells(sw, sh, avail int) (cols, rows int) {
-	w, h := sw, sh
-	if m := max(sw, sh); m > maxDim {
-		w = sw * maxDim / m
-		h = sh * maxDim / m
+func validCellSize(w, h int) bool {
+	return w > 0 && h > 0 && w <= maxCellPixels && h <= maxCellPixels
+}
+
+// fitCells uses decoded pixels, choosing columns first and rounding the
+// proportional height outward. U=1 fits the image without changing its aspect;
+// spare space in the final row is preferable to shrinking it a second time.
+func fitCells(sw, sh, avail, cw, ch int) (cols, rows int) {
+	if sw <= 0 || sh <= 0 || sw > maxDim || sh > maxDim {
+		return maxDiacritic + 1, maxDiacritic + 1
 	}
-	cols = max(1, w/cellW)
-	rows = max(1, h/cellH)
-	avail = max(1, avail)
-	if cols > avail {
-		rows = max(1, rows*avail/cols)
-		cols = avail
+	if !validCellSize(cw, ch) {
+		cw, ch = cellW, cellH
 	}
+	cols = min(max(1, avail), max(1, sw/cw))
+	// A sub-cell image still reserves one column, but not an upscaled height.
+	// Bounded decoded dimensions and cell metrics keep these products safe.
+	numerator := min(sw, cols*cw) * sh
+	denominator := sw * ch
+	rows = max(1, (numerator+denominator-1)/denominator)
 	return cols, rows
 }
 
@@ -459,9 +466,11 @@ func decodeImage(b []byte) (*imgData, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := math.Min(1, math.Min(float64(maxDim)/float64(cfg.Width), float64(maxDim)/float64(cfg.Height)))
-	w := max(1, int(float64(cfg.Width)*s))
-	h := max(1, int(float64(cfg.Height)*s))
+	w, h := cfg.Width, cfg.Height
+	if longest := max(w, h); longest > maxDim {
+		w = max(1, w*maxDim/longest)
+		h = max(1, h*maxDim/longest)
+	}
 	return &imgData{w: w, h: h, pix: resample(im, w, h)}, nil
 }
 
@@ -484,11 +493,10 @@ func resample(im image.Image, dw, dh int) []byte {
 // renderFigure renders the full placeholder grid: rows lines of cols
 // placeholder cells each. The cells are ordinary text, so bubbletea repaints
 // move and clip them, and following text never overlaps the image area.
-func renderFigure(f figure, availCols int) string {
-	cols, rows := fitCells(f.w, f.h, availCols)
-	lines := make([]string, rows)
-	for r := range rows {
-		lines[r] = placeholderLine(f.id, cols, r)
+func renderFigure(f figure) string {
+	lines := make([]string, f.rows)
+	for r := range f.rows {
+		lines[r] = placeholderLine(f.id, f.cols, r)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -585,12 +593,12 @@ func kittyDeleteAll(ids []int) string {
 // data for ids never sent, and (re)create virtual placements whose geometry
 // differs from what the terminal already has. Nothing is marked applied here;
 // that happens when the frame is accepted.
-func gfxControls(st *imageStore, figs []figure, availCols int) docGfx {
+func gfxControls(st *imageStore, figs []figure) docGfx {
 	var g docGfx
 	var sb strings.Builder
 	txSeen := map[int]bool{}
 	for _, f := range figs {
-		cols, rows := fitCells(f.w, f.h, availCols)
+		cols, rows := f.cols, f.rows
 		if !txSeen[f.id] && st.txNeeded(f.id) {
 			if d := st.data(f.id); d != nil {
 				sb.WriteString(kittyTx(f.id, d.w, d.h, d.pix))
@@ -703,16 +711,14 @@ func fetchOne(key string, st *imageStore) tea.Msg {
 		return imagesDoneMsg{left: st.finishFetch(key)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close() // Read result/status determines success, not cleanup.
 		st.fail(key)
 		return imagesDoneMsg{left: st.finishFetch(key)}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchSize+1))
-	resp.Body.Close()
+	_ = resp.Body.Close() // Read result/status determines success, not cleanup.
 	switch {
-	case err != nil:
-	case len(b) > maxFetchSize:
-		err = fmt.Errorf("image exceeds %d bytes", maxFetchSize)
+	case err != nil || len(b) > maxFetchSize:
 	default:
 		var d *imgData
 		if d, err = decodeImage(b); err == nil {

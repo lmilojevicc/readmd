@@ -74,7 +74,8 @@ func insertAlertSentinels(src string) (string, []alert) {
 	nonceStr := hex.EncodeToString(nonce[:])
 	var edits []edit
 	var alerts []alert
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}

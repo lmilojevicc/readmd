@@ -98,7 +98,10 @@ func TestAdapterProseWrapsAndReaderStaysNatural(t *testing.T) {
 }
 
 func TestAdapterCorpusReaderMatchesBaseline(t *testing.T) {
-	files, _ := filepath.Glob("../../testdata/corpus/*.md")
+	files, err := filepath.Glob("../../testdata/corpus/*.md")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob corpus: %v (%d files)", err, len(files))
+	}
 	for _, f := range files {
 		t.Run(filepath.Base(f), func(t *testing.T) {
 			src, err := os.ReadFile(f)

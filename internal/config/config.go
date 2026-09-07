@@ -139,7 +139,7 @@ func Load(warnings io.Writer) (Config, error) {
 		if os.Getenv("XDG_CONFIG_HOME") != "" {
 			return Config{}, err
 		}
-		fmt.Fprintln(warnings, "readmd: warning:", err)
+		_, _ = fmt.Fprintln(warnings, "readmd: warning:", err) // Best-effort diagnostic; defaults remain usable.
 		return Defaults(), nil
 	}
 	return loadPath(path, warnings)
@@ -167,7 +167,7 @@ func loadPath(path string, warnings io.Writer) (Config, error) {
 		return readExisting(path)
 	}
 	if err != nil {
-		fmt.Fprintf(warnings, "readmd: warning: cannot create config %s: %v; using defaults\n", path, err)
+		_, _ = fmt.Fprintf(warnings, "readmd: warning: cannot create config %s: %v; using defaults\n", path, err) // Best-effort diagnostic.
 	}
 	return Defaults(), nil
 }
@@ -180,13 +180,13 @@ func createDefault(path string) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }() // Best-effort temporary-file cleanup.
 	if _, err = f.WriteString(Example); err != nil {
-		f.Close()
+		_ = f.Close() // Preserve the write/sync error.
 		return err
 	}
 	if err = f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close() // Preserve the write/sync error.
 		return err
 	}
 	if err = f.Close(); err != nil {

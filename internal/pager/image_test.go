@@ -58,16 +58,18 @@ func TestFitCells(t *testing.T) {
 		wantCols, wantR int
 	}{
 		{"natural small", 100, 40, 1000, 10, 2},
-		{"wide capped by avail floors", 1920, 1080, 80, 80, 22},
-		{"huge source capped", 3000, 3000, 200, 100, 50},
-		{"scaled to width", 2000, 1000, 60, 60, 15},
+		{"wide rounded outward", 1000, 562, 80, 80, 23},
+		{"square decoded cap", 1000, 1000, 200, 100, 50},
+		{"scaled to width", 1000, 500, 60, 60, 15},
+		{"width limited before rows", 800, 200, 38, 38, 5},
+		{"cover", 1000, 605, 38, 38, 12},
 		{"tiny rounds up to one cell", 5, 5, 10, 1, 1},
-		{"tall image", 10, 2000, 50, 1, 50},
+		{"tall image", 10, 1000, 50, 1, 50},
 		{"no avail clamps to one cell", 100, 40, 0, 1, 1},
 		{"never exceeds natural pixels", 25, 45, 100, 2, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cols, rows := fitCells(tc.sw, tc.sh, tc.avail)
+			cols, rows := fitCells(tc.sw, tc.sh, tc.avail, 0, 0)
 			if cols != tc.wantCols || rows != tc.wantR {
 				t.Errorf("fitCells(%d,%d,%d) = %d,%d, want %d,%d",
 					tc.sw, tc.sh, tc.avail, cols, rows, tc.wantCols, tc.wantR)
@@ -462,11 +464,11 @@ func TestInsertFiguresNonceDiffersPerRender(t *testing.T) {
 
 func TestSpliceFiguresMechanics(t *testing.T) {
 	draw := func(f figure) string {
-		_, rows := fitCells(f.w, f.h, 80)
-		return strings.Repeat("R\n", rows-1) + "R"
+		return strings.Repeat("R\n", f.rows-1) + "R"
 	}
 	mk := func(tok, orig string, w, h int) figure {
-		return figure{token: tok, orig: orig, w: w, h: h}
+		cols, rows := fitCells(w, h, 80, 0, 0)
+		return figure{token: tok, orig: orig, cols: cols, rows: rows}
 	}
 	for _, tc := range []struct {
 		name   string
@@ -523,7 +525,7 @@ func TestRenderDocEndToEnd(t *testing.T) {
 	if len(pending) != 0 {
 		t.Fatalf("local figure must not be pending: %v", pending)
 	}
-	cols, rows := fitCells(40, 60, 78)
+	cols, rows := fitCells(40, 60, 78, 0, 0)
 	txWant := "\x1b_Ga=t,f=32,s=40,v=60,i=1,q=2,m="
 	if !strings.Contains(g.esc, txWant) {
 		t.Errorf("gfx controls must transmit natural pixels once: %q", g.esc)
@@ -675,6 +677,8 @@ func TestDocLiteralImageMarkerDoesNotBreakSplice(t *testing.T) {
 }
 
 func TestModelImageFlow(t *testing.T) {
+	t.Setenv("TERM", "xterm-kitty")
+	t.Setenv("TMUX", "")
 	e := newImgEnv(t)
 	e.writeImg(t, "cat.png", redPNG(t, 40, 30))
 	doc := filepath.Join(e.dir, "doc.md")

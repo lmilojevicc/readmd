@@ -20,7 +20,8 @@ func substituteMath(src string) string {
 			prot = append(prot, [2]int{s, e})
 		}
 	}
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
@@ -267,8 +268,8 @@ func texRun(rs []rune) string {
 	var b strings.Builder
 	i := 0
 	for i < len(rs) {
-		switch r := rs[i]; {
-		case r == '\\':
+		switch r := rs[i]; r {
+		case '\\':
 			val, next, ok := texCmd(rs, i)
 			if !ok {
 				b.WriteByte('\\')
@@ -277,7 +278,7 @@ func texRun(rs []rune) string {
 			}
 			b.WriteString(val)
 			i = next
-		case r == '^' || r == '_':
+		case '^', '_':
 			arg, next, ok := texArg(rs, i+1)
 			if !ok {
 				b.WriteRune(r)
@@ -286,7 +287,7 @@ func texRun(rs []rune) string {
 			}
 			b.WriteString(texScript(arg, r == '^'))
 			i = next
-		case r == '{':
+		case '{':
 			inner, next, ok := texGroup(rs, i)
 			if !ok {
 				b.WriteRune(r)

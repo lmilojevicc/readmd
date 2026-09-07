@@ -217,7 +217,8 @@ func sourceLinkLayout(src string) []sourceLink {
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var out []sourceLink
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}

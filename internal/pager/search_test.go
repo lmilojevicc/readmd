@@ -115,7 +115,7 @@ func TestSearchFlow(t *testing.T) {
 		t.Fatalf("prompt with live count missing:\n%s", v)
 	}
 	lines := strings.Split(v, "\n")
-	if strings.Index(lines[len(lines)-2], "/alpha") == -1 ||
+	if !strings.Contains(lines[len(lines)-2], "/alpha") ||
 		!strings.Contains(lines[len(lines)-1], "doc.md") {
 		t.Fatal("prompt must sit directly above status bar")
 	}

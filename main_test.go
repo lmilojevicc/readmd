@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"readmd/internal/pager"
+	"github.com/lmilojevicc/readmd/internal/pager"
 )
 
 func TestParseArgs(t *testing.T) {

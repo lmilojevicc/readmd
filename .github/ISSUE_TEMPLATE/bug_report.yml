@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible readmd problem.
+body:
+  - type: markdown
+    attributes:
+      value: For security vulnerabilities, use private reporting as described in SECURITY.md, not a public issue. Remove sensitive document content and URLs from examples.
+  - type: input
+    id: version
+    attributes:
+      label: readmd version or commit
+      description: For a Go-installed binary, `GOWORK=off go version -m /path/to/readmd` shows build information.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: macOS or Linux distribution, version, architecture
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal and version
+      description: Include terminal dimensions and any multiplexer (such as tmux).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and minimal Markdown
+      description: Include relevant CLI flags and configuration, with private data removed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

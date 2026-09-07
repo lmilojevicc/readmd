@@ -91,7 +91,8 @@ func renderedTargets(src string, base, stripped []string) []linkTarget {
 func usedFootnoteLabels(src string) map[string]bool {
 	doc := footnoteMD.Parser().Parse(text.NewReader([]byte(src)))
 	labels := map[string]bool{}
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering {
 			if fn, ok := n.(*extast.Footnote); ok && fn.Index > 0 {
 				labels[string(fn.Ref)] = true
@@ -130,7 +131,7 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 
 	var targets []linkTarget
 	for label, indexes := range byLabel {
-		var definition int = -1
+		definition := -1
 		for _, i := range indexes {
 			if markers[i].definition {
 				if definition >= 0 {
@@ -194,7 +195,8 @@ func sourceFootnoteMarkers(src string) ([]sourceFootnoteMarker, bool) {
 	bsrc := []byte(src)
 	doc := footnoteMD.Parser().Parse(text.NewReader(bsrc))
 	definitions := map[int]string{}
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering {
 			if fn, ok := n.(*extast.Footnote); ok && fn.Index > 0 {
 				definitions[fn.Index] = string(fn.Ref)
@@ -204,7 +206,8 @@ func sourceFootnoteMarkers(src string) ([]sourceFootnoteMarker, bool) {
 	})
 	var expected []string
 	var codeRanges, htmlRanges []sourceRange
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}

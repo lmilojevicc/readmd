@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a focused improvement to readmd.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What is difficult to read or do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the behavior you want and any alternatives considered.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example or terminal context
+      description: A small Markdown example or terminal constraints can help. Remove private information.

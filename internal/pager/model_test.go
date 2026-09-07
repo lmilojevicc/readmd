@@ -21,6 +21,12 @@ func settle(t *testing.T, m *Model, cmd tea.Cmd) {
 	t.Helper()
 	for cmd != nil {
 		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, sub := range batch {
+				settle(t, m, sub)
+			}
+			return
+		}
 		nm, next := m.Update(msg)
 		*m = *nm.(*Model)
 		cmd = next

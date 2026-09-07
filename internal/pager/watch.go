@@ -55,7 +55,7 @@ func newFileWatcher(path string) *fileWatcher {
 		fw.real = w
 		fw.events, fw.errs = w.Events, w.Errors
 	} else if w != nil {
-		w.Close()
+		_ = w.Close() // Best-effort cleanup after watch setup failed.
 	}
 	go fw.run()
 	return fw
@@ -73,7 +73,7 @@ func (fw *fileWatcher) run() {
 	defer close(fw.done)
 	defer func() {
 		if fw.real != nil {
-			fw.real.Close()
+			_ = fw.real.Close() // Best-effort teardown; watcher is no longer used.
 		}
 	}()
 	events, errs := fw.events, fw.errs
@@ -121,7 +121,7 @@ func (fw *fileWatcher) run() {
 
 func (fw *fileWatcher) rewatch() (<-chan fsnotify.Event, <-chan error) {
 	if fw.real != nil {
-		fw.real.Close()
+		_ = fw.real.Close() // Best-effort teardown; watcher is no longer used.
 		fw.real = nil
 	}
 	for {
@@ -139,7 +139,7 @@ func (fw *fileWatcher) rewatch() (<-chan fsnotify.Event, <-chan error) {
 			return w.Events, w.Errors
 		}
 		if w != nil {
-			w.Close()
+			_ = w.Close() // Best-effort cleanup after watch setup failed.
 		}
 		select {
 		case <-fw.stopped:

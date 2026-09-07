@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"readmd/internal/config"
-	"readmd/internal/pager"
+	"github.com/lmilojevicc/readmd/internal/config"
+	"github.com/lmilojevicc/readmd/internal/pager"
 )
 
 func main() {
@@ -127,7 +127,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("no terminal available for pager: %w", err)
 		}
-		defer tty.Close()
+		defer func() { _ = tty.Close() }() // Read-only TTY; no pending writes.
 		in = tty
 	}
 

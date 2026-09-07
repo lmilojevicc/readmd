@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOWORK: "off"
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Isolate application configuration
+        shell: bash
+        run: |
+          # Preserve setup-go caches before changing HOME/XDG for tests and PTY.
+          echo "GOPATH=$(GOWORK=off go env GOPATH)" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$(GOWORK=off go env GOMODCACHE)" >> "$GITHUB_ENV"
+          echo "GOCACHE=$(GOWORK=off go env GOCACHE)" >> "$GITHUB_ENV"
+          root=$(mktemp -d "$RUNNER_TEMP/readmd-env.XXXXXX")
+          mkdir -p "$root/home" "$root/config" "$root/cache" "$root/state"
+          echo "HOME=$root/home" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$root/config" >> "$GITHUB_ENV"
+          echo "XDG_CACHE_HOME=$root/cache" >> "$GITHUB_ENV"
+          echo "XDG_STATE_HOME=$root/state" >> "$GITHUB_ENV"
+      - name: Verify modules
+        run: GOWORK=off go mod verify
+      - name: Build
+        run: GOWORK=off go build ./...
+      - name: Test with race detector
+        # One uncached race run also executes the full ordinary test suite.
+        run: GOWORK=off go test -race -count=1 ./...
+      - name: Unix PTY smoke
+        shell: bash
+        run: |
+          GOWORK=off go build -o "$RUNNER_TEMP/readmd" .
+          python3 testdata/startup_pty.py "$RUNNER_TEMP/readmd"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: v2.13.2
+      - name: Check formatting
+        run: GOWORK=off golangci-lint fmt --diff

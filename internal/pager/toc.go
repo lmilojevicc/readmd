@@ -26,7 +26,8 @@ func extractHeadings(src string) []heading {
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var heads []heading
 	prev := 0
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
@@ -173,17 +174,19 @@ func wrappedHeadingIndex(rendered, title string) (int, int) {
 			continue
 		}
 		r, t := start, 0
+	match:
 		for r < len(rendered) && t < len(title) {
-			if rendered[r] == '\n' {
+			switch rendered[r] {
+			case '\n':
 				r++
 				if title[t] == ' ' {
 					t++
 				}
-			} else if rendered[r] == title[t] {
+			case title[t]:
 				r++
 				t++
-			} else {
-				break
+			default:
+				break match
 			}
 		}
 		if t == len(title) {

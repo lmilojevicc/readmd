@@ -156,7 +156,10 @@ func TestHeadingMappingPipeline(t *testing.T) {
 	dups := 0
 	last := map[string]int{}
 	for _, h := range func() []heading {
-		out, _ := Render(src, 40)
+		out, err := Render(src, 40)
+		if err != nil {
+			t.Fatal(err)
+		}
 		lines := splitStrip(out)
 		hs := extractHeadings(src)
 		mapHeadings(hs, lines)

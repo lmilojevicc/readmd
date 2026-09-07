@@ -6,9 +6,15 @@ Terminal markdown reader (pager-style TUI) in Go. Goal: make ANY markdown file r
 
 - Build: `GOWORK=off go build ./...`
 - Vet: `GOWORK=off go vet ./...`
-- All tests: `GOWORK=off go test ./...`
+- All tests: `GOWORK=off go test -count=1 ./...`
+- Race gate: `GOWORK=off go test -race -count=1 ./...`
+- Lint (v2.13.2): `GOWORK=off golangci-lint run`
+- Formatting: `GOWORK=off golangci-lint fmt --diff`
 - Single package/test: `GOWORK=off go test ./internal/<pkg> -run <TestName>`
 - Run: `GOWORK=off go run . <file.md>` (reads stdin when piped and no file arg)
+
+CI tests Linux and macOS; Windows support is not promised. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and isolated PTY checks.
 
 ## Locked stack decisions
 

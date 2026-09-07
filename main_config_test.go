@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"readmd/internal/config"
+
+	"github.com/lmilojevicc/readmd/internal/config"
 )
 
 func TestConfigCLIOverridePrecedence(t *testing.T) {
@@ -47,7 +48,10 @@ func TestStartupModelUsesConfig(t *testing.T) {
 		t.Run(map[bool]string{false: "off", true: "on"}[mouse], func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			path, _ := config.Path()
+			path, err := config.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +72,10 @@ func TestStartupModelUsesConfig(t *testing.T) {
 			if m.View().MouseMode != want || warnings.Len() != 0 {
 				t.Fatalf("empty view ignored configured mouse; warnings=%s", &warnings)
 			}
-			data, _ := os.ReadFile(path)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if string(data) != body {
 				t.Fatal("startup rewrote file")
 			}
@@ -81,9 +88,16 @@ func TestStartupValidatesFileBeforeOverrides(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			path, _ := config.Path()
-			os.MkdirAll(filepath.Dir(path), 0700)
-			os.WriteFile(path, []byte(bad), 0600)
+			path, err := config.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(bad), 0600); err != nil {
+				t.Fatal(err)
+			}
 			opts, err := parseArgs([]string{"--style=auto", "--no-images"})
 			if err != nil {
 				t.Fatal(err)

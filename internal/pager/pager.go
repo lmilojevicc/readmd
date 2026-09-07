@@ -3,15 +3,15 @@ package pager
 import (
 	"fmt"
 	"os"
-
-	"readmd/internal/config"
 	"strings"
-
-	"github.com/charmbracelet/x/ansi"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/lmilojevicc/readmd/internal/config"
 )
 
 type Model struct {
@@ -34,9 +34,10 @@ type Model struct {
 	openURL  func(string) error
 	mouse    bool
 
-	gfx    bool
-	imgCfg ImageConfig
-	store  *imageStore
+	gfx                   bool
+	imgCfg                ImageConfig
+	store                 *imageStore
+	cellWidth, cellHeight int
 
 	heads           []heading
 	stripped        []string
@@ -109,10 +110,17 @@ func (m *Model) Configure(c config.Config) error {
 
 func (m *Model) Init() tea.Cmd {
 	if m.path == "" {
-		return nil
+		return m.queryCellSize()
 	}
 	m.fw = newFileWatcher(m.path)
-	return m.waitForChange()
+	return tea.Batch(m.queryCellSize(), m.waitForChange())
+}
+
+func (m *Model) queryCellSize() tea.Cmd {
+	if !m.gfx {
+		return nil
+	}
+	return tea.Raw(ansi.WindowOp(16))
 }
 
 type renderedMsg struct {
@@ -132,6 +140,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.syncVPHeight()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		var query tea.Cmd
+		if m.width > 0 {
+			query = m.queryCellSize()
+		}
 		m.stopTargets(true)
 		resized := msg.Width != m.width
 		m.width = msg.Width
@@ -142,9 +154,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncVPWidth()
 		m.syncVPHeight()
 		if resized {
-			return m, m.requestRender()
+			return m, tea.Batch(query, m.requestRender())
 		}
-		return m, nil
+		return m, query
+
+	case uv.CellSizeEvent:
+		if !m.gfx || !validCellSize(msg.Width, msg.Height) ||
+			(msg.Width == m.cellWidth && msg.Height == m.cellHeight) {
+			return m, nil
+		}
+		cw, ch := m.cellWidth, m.cellHeight
+		if !validCellSize(cw, ch) {
+			cw, ch = cellW, cellH
+		}
+		m.cellWidth, m.cellHeight = msg.Width, msg.Height
+		if m.width <= 0 || (cw == msg.Width && ch == msg.Height) {
+			return m, nil
+		}
+		if m.anchor == nil {
+			m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
+		}
+		return m, m.requestRender()
 
 	case renderedMsg:
 		m.stopTargets(true)
@@ -428,11 +458,13 @@ func (m *Model) requestRender() tea.Cmd {
 	}
 	gen, st, cellWidth := m.gen, m.style, m.tableCellWidth
 	o := imgCtx{
-		Enabled:  m.gfx,
-		NoRemote: m.imgCfg.NoRemote,
-		Dir:      m.docDir(),
-		Width:    w,
-		store:    m.store,
+		Enabled:    m.gfx,
+		NoRemote:   m.imgCfg.NoRemote,
+		Dir:        m.docDir(),
+		Width:      w,
+		CellWidth:  m.cellWidth,
+		CellHeight: m.cellHeight,
+		store:      m.store,
 	}
 	return func() tea.Msg {
 		out, pending, g, err := renderDoc(o, src, wrapWidth, st, cellWidth)

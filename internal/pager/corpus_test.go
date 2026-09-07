@@ -17,7 +17,8 @@ func codeLines(src string) map[string]bool {
 	set := map[string]bool{}
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// This visitor never returns an error.
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
