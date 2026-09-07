@@ -17,7 +17,17 @@ keyboard or mouse, and keep the colors of your terminal's own palette.
 
 ## Install
 
-Requires **Go 1.27+**. Supports **Linux and macOS**; Windows support is not promised.
+Supports **Linux and macOS**; Windows support is not promised.
+
+Install with Homebrew (recommended):
+
+```sh
+brew install lmilojevicc/tap/readmd
+```
+
+Homebrew builds from source and installs its Go build dependency automatically.
+
+Alternatively, with **Go 1.27+**:
 
 ```sh
 go install github.com/lmilojevicc/readmd@latest
