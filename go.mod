@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.7.17
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
@@ -33,8 +33,8 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
-	golang.org/x/net v0.39.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )

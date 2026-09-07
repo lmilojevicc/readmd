@@ -39,13 +39,13 @@ embedded upstream data/code or remove attribution obligations.
 | `github.com/muesli/cancelreader` | `v0.2.2` | MIT | `LICENSE` |
 | `github.com/rivo/uniseg` | `v0.4.7` | MIT | `LICENSE.txt` |
 | `github.com/xo/terminfo` | `v0.0.0-20220910002029-abceb7e1c41e` | MIT | `LICENSE` |
-| `github.com/yuin/goldmark` | `v1.7.8` | MIT | `LICENSE` |
+| `github.com/yuin/goldmark` | `v1.7.17` | MIT | [`LICENSE`](https://github.com/yuin/goldmark/blob/v1.7.17/LICENSE) |
 | `github.com/yuin/goldmark-emoji` | `v1.0.5` | MIT | `LICENSE` |
 | `go.yaml.in/yaml/v3` | `v3.0.5` | MIT AND Apache-2.0 (file-specific) | `LICENSE`, `NOTICE` |
-| `golang.org/x/net` | `v0.39.0` | BSD-3-Clause | `LICENSE` |
+| `golang.org/x/net` | `v0.56.0` | BSD-3-Clause | [`LICENSE`](https://go.googlesource.com/net/+/refs/tags/v0.56.0/LICENSE), [`PATENTS`](https://go.googlesource.com/net/+/refs/tags/v0.56.0/PATENTS) |
 | `golang.org/x/sync` | `v0.22.0` | BSD-3-Clause | `LICENSE` |
 | `golang.org/x/sys` | `v0.47.0` | BSD-3-Clause | `LICENSE` |
-| `golang.org/x/text` | `v0.24.0` | BSD-3-Clause | `LICENSE` |
+| `golang.org/x/text` | `v0.39.0` | BSD-3-Clause | [`LICENSE`](https://go.googlesource.com/text/+/refs/tags/v0.39.0/LICENSE), [`PATENTS`](https://go.googlesource.com/text/+/refs/tags/v0.39.0/PATENTS) |
 
 ## Attribution and distribution
 
@@ -56,6 +56,14 @@ notices, including the Go runtime's license; this inventory is not a substitute
 for those texts. Recheck this inventory when updating dependencies.
 
 Additional provenance to preserve when packaging:
+
+- `golang.org/x/net v0.56.0` and `golang.org/x/text v0.39.0` retain the
+  BSD-3-Clause license and `PATENTS` texts of the previously pinned v0.39.0 and
+  v0.24.0 versions, respectively. Their upstream `PATENTS` files provide an
+  additional patent grant. `github.com/yuin/goldmark v1.7.17` retains the MIT
+  license text of v1.7.8. This update adds no runtime packages or newly
+  identified license/notice obligations; preserve their existing copyright,
+  license and patent notices when packaging.
 
 - `go.yaml.in/yaml/v3` is **not simply MIT**: its `LICENSE` assigns MIT to the
   listed libyaml-ported files and Apache-2.0 to the remaining files. Its `NOTICE`
