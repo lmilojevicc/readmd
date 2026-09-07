@@ -212,10 +212,10 @@ func TestStatusBarChips(t *testing.T) {
 	}
 	for _, want := range []string{
 		dimStyle.Render("doc.md"),
-		dimStyle.Render("render " + fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)),
+		dimStyle.Render(fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)),
 	} {
 		if !strings.Contains(bar, want) {
-			t.Fatalf("filename and view info must use the dim palette style; missing %q in:\n%q", want, bar)
+			t.Fatalf("filename and status metadata must use the dim palette style; missing %q in:\n%q", want, bar)
 		}
 	}
 	if w := ansi.StringWidth(bar); w > 60 {

@@ -76,8 +76,8 @@ func TestReaderColumnLayout(t *testing.T) {
 			if got := m.vp.Width(); got != tc.wantW {
 				t.Fatalf("reader viewport width %d, want %d", got, tc.wantW)
 			}
-			if v := m.View().Content; !strings.Contains(v, "render reader") {
-				t.Fatalf("status bar lacks reader indicator:\n%s", v)
+			if v := m.View().Content; !strings.Contains(v, "reader") || strings.Contains(v, "render") {
+				t.Fatalf("status bar lacks reader-only indicator:\n%s", v)
 			}
 			for _, l := range strings.Split(bodyOf(m), "\n") {
 				if s := ansi.Strip(l); !strings.HasPrefix(s, strings.Repeat(" ", tc.wantMargin)) {
@@ -182,8 +182,8 @@ func TestReaderViewportFrame(t *testing.T) {
 	if got := m.vp.Width(); got != 120 {
 		t.Fatalf("viewport must pin to the reader column: width %d, want 120", got)
 	}
-	if v := m.View().Content; !strings.Contains(v, "render reader") {
-		t.Fatalf("status bar must report reader mode:\n%s", v)
+	if v := m.View().Content; !strings.Contains(v, "reader") || strings.Contains(v, "render") {
+		t.Fatalf("status bar must report reader mode without a render label:\n%s", v)
 	}
 	pad := strings.Repeat(" ", 10) // margin at vw=140: (140-120)/2
 	assertMarginFramed(t, m, pad, 130)

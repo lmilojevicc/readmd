@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,7 +91,7 @@ func TestHorizontalPan(t *testing.T) {
 				if m.widest <= m.vp.Width() {
 					t.Fatalf("precondition: rendered diagram width %d must exceed viewport %d", m.widest, m.vp.Width())
 				}
-				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render") || strings.Contains(status, "→") {
+				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "%") || strings.Contains(status, "render") || strings.Contains(status, "→") {
 					t.Fatalf("status at offset zero: %q", status)
 				}
 				press(m, "l")
@@ -101,8 +102,8 @@ func TestHorizontalPan(t *testing.T) {
 				if after := m.vp.View(); after == before {
 					t.Fatal("horizontal pan must change the visible diagram slice")
 				}
-				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "render →"+strconv.Itoa(right)) {
-					t.Fatalf("status must report horizontal offset %d: %q", right, status)
+				if status := ansi.Strip(m.statusBar()); !strings.Contains(status, "→"+strconv.Itoa(right)) || strings.Contains(status, "render") {
+					t.Fatalf("status must report horizontal offset %d without a render label: %q", right, status)
 				}
 				press(m, "h")
 				if off := m.vp.XOffset(); off >= right {
@@ -168,15 +169,15 @@ func TestViewStatusBar(t *testing.T) {
 	settle(t, m, cmd)
 
 	view := func() string { return m.View().Content }
-	if v := view(); !strings.Contains(v, "render") || strings.Contains(v, "→") {
-		t.Fatalf("render status must lack an offset at column zero:\n%s", v)
+	if v := view(); !strings.Contains(v, "%") || strings.Contains(v, "render") || strings.Contains(v, "→") {
+		t.Fatalf("status must show only the percentage metadata at column zero:\n%s", v)
 	}
 	for range 2 {
 		press(m, "l")
 	}
 	step := max(8, m.width/10)
-	if v := view(); !strings.Contains(v, "render →"+strconv.Itoa(step*2)) {
-		t.Fatalf("render status must show horizontal offset:\n%s", v)
+	if v := view(); !strings.Contains(v, "→"+strconv.Itoa(step*2)) || strings.Contains(v, "render") {
+		t.Fatalf("status must show horizontal offset without a render label:\n%s", v)
 	}
 }
 
@@ -184,15 +185,15 @@ func TestStatusBarStates(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		setup func(*testing.T, *Model)
-		want  string
+		info  string
 	}{
-		{"render", func(*testing.T, *Model) {}, "render"},
-		{"render offset", func(_ *testing.T, m *Model) { press(m, "l") }, "render →8"},
-		{"reader", func(t *testing.T, m *Model) { settle(t, m, press(m, "r")) }, "render reader"},
-		{"reader offset", func(t *testing.T, m *Model) {
+		{"normal", func(*testing.T, *Model) {}, ""},
+		{"panned", func(_ *testing.T, m *Model) { press(m, "l") }, "→8"},
+		{"reader", func(t *testing.T, m *Model) { settle(t, m, press(m, "r")) }, "reader"},
+		{"reader panned", func(t *testing.T, m *Model) {
 			settle(t, m, press(m, "r"))
 			press(m, "l")
-		}, "render reader →8"},
+		}, "reader →8"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := New(longDoc, "doc.md")
@@ -200,11 +201,16 @@ func TestStatusBarStates(t *testing.T) {
 			*m = *nm.(*Model)
 			settle(t, m, cmd)
 			tc.setup(t, m)
-			bar := ansi.Strip(m.statusBar())
-			if !strings.Contains(bar, tc.want) {
-				t.Fatalf("status %q lacks %q", bar, tc.want)
+			pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
+			want := pct
+			if tc.info != "" {
+				want = tc.info + " " + pct
 			}
-			for _, obsolete := range []string{"wrap", "nowrap", "wide", "source"} {
+			bar := ansi.Strip(m.statusBar())
+			if suffix := want + "  " + ansi.Strip(helpChip); !strings.HasSuffix(bar, suffix) {
+				t.Fatalf("status %q must end with metadata variant %q", bar, suffix)
+			}
+			for _, obsolete := range []string{"render", "wrap", "nowrap", "wide", "source"} {
 				if strings.Contains(bar, obsolete) {
 					t.Fatalf("status contains obsolete layout label %q: %q", obsolete, bar)
 				}
@@ -228,12 +234,12 @@ func TestStatusBarLayout(t *testing.T) {
 		want []string
 		omit []string
 	}{
-		{"full bar", 44, []string{brandChip, "doc.md", "%", "help"}, nil},
-		{"filename drops first", 30, []string{brandChip, "render", "%", "help"}, []string{"doc.md", "…"}},
-		{"sub-2-char name dropped", 28, []string{brandChip, "%"}, []string{"help", "…"}},
-		{"hint dropped before percent", 26, []string{brandChip, "%"}, []string{"help", "doc.md"}},
-		{"percent dropped before chip", 19, []string{brandChip, "render"}, []string{"%", "help"}},
-		{"vw 12 drops the name segment", 12, []string{brandChip}, []string{"%", "help", "render", "…"}},
+		{"full bar", 44, []string{brandChip, "doc.md", "%", "help"}, []string{"render"}},
+		{"filename truncates before metadata", 30, []string{brandChip, "doc.…", "%", "help"}, []string{"render"}},
+		{"help dropped before percent", 20, []string{brandChip, "doc.…", "%"}, []string{"help", "render"}},
+		{"sub-2-char name dropped", 16, []string{brandChip, "%"}, []string{"help", "doc", "render", "…"}},
+		{"percent retained at minimum fit", 13, []string{brandChip, "%"}, []string{"help", "doc", "render", "…"}},
+		{"percent dropped next", 12, []string{brandChip}, []string{"%", "help", "render", "…"}},
 		{"bare chip survives", 9, []string{brandChip}, []string{"%", "help", "render"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

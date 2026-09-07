@@ -549,18 +549,23 @@ func (m *Model) statusBar() string {
 			return m.targetStatus()
 		}
 	}
-	info := "render"
+	var info []string
 	if m.reader {
-		info += " reader"
+		info = append(info, "reader")
 	}
 	if m.vp.XOffset() > 0 {
-		info += fmt.Sprintf(" →%d", m.vp.XOffset())
+		info = append(info, fmt.Sprintf("→%d", m.vp.XOffset()))
 	}
+	view := strings.Join(info, " ")
 	pct := fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100)
+	metadata := pct
+	if view != "" {
+		metadata = view + " " + pct
+	}
 	rights := []string{
-		dimStyle.Render(info+" "+pct) + "  " + helpChip,
-		dimStyle.Render(info + " " + pct),
-		dimStyle.Render(info),
+		dimStyle.Render(metadata) + "  " + helpChip,
+		dimStyle.Render(metadata),
+		dimStyle.Render(view),
 		"",
 	}
 	for _, right := range rights {
