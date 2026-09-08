@@ -25,11 +25,13 @@ tasks:
 footnotes:
   reference: {fg: 6, underline: true}
   definition: {fg: 14, bold: true, underline: false}
+# Icons reserve a trailing blank before the title separator; explicit padding stays.
 callouts:
   preset: unicode # nerd requires Nerd Fonts 3.x Mono or a suitable fallback
   rail: {glyph: '│'}
   title: {bold: true}
-  # note: {icon: 'i', rail: {fg: 12}, title: {bold: false}}
+  # This custom note icon also requires a Nerd Font or suitable symbols fallback.
+  note: {icon: ' ', rail: {fg: 12}, title: {bold: false}}
 
 # Nerd recipe: replace the callouts mapping above with this mapping (no duplicates).
 # callouts:

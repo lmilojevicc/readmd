@@ -796,3 +796,76 @@ func TestThemeAllHeadingLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestThemeCalloutIconPadding(t *testing.T) {
+	for _, kind := range []struct{ name, title, unicode, nerd string }{
+		{"note", "Note", "ⓘ", "\U000f02fd"},
+		{"tip", "Tip", "✦", "\U000f0336"},
+		{"important", "Important", "✱", "\U000f017e"},
+		{"warning", "Warning", "⚠", "\U000f002a"},
+		{"caution", "Caution", "✖", "\U000f0ce6"},
+	} {
+		for _, preset := range []struct{ name, icon, rail string }{
+			{"unicode", kind.unicode, "│"}, {"nerd", kind.nerd, "▋"},
+		} {
+			for _, icon := range []struct{ name, override, reserved string }{
+				{"preset", "", preset.icon + " "},
+				{"custom", "i", "i "},
+				{"padded", "i ", "i "},
+				{"user glyph", "", " "},
+				{"user padded", " ", " "},
+				{"explicit spaces", " i  ", " i  "},
+				{"wide", "界", "界 "},
+				{"grapheme", "👩‍💻", "👩‍💻 "},
+				{"max width", "abcd", "abcd "},
+			} {
+				for _, base := range []string{paletteStyleName, "dark", "light", "notty"} {
+					for _, width := range []int{1, 40} {
+						t.Run(fmt.Sprintf("%s/%s/%s/%s/%d", kind.name, preset.name, icon.name, base, width), func(t *testing.T) {
+							override := ""
+							if icon.override != "" {
+								override = "icon: '" + icon.override + "', "
+							}
+							yaml := "callouts: {preset: " + preset.name + ", title: {bold: true}, " + kind.name + ": {" + override + "rail: {fg: 12}, title: {fg: 12, bold: false}}}"
+							src := "> [!" + strings.ToUpper(kind.name) + "]\n> BODY\n\n> QUOTE\n\n# AFTER\n"
+							out := renderThemeTest(t, src, base, yaml, width)
+							wantTitle := icon.reserved + " " + kind.title
+							want := preset.rail + " " + wantTitle
+							found := false
+							for _, line := range strings.Split(out, "\n") {
+								plain := ansi.Strip(line)
+								if !strings.Contains(plain, kind.title) {
+									continue
+								}
+								found = true
+								if strings.TrimLeft(plain, " ") != want || !strings.Contains(line, wantTitle+"\x1b[m") {
+									t.Fatalf("styled title = %q, want prefix %q and intact styled title %q", line, want, wantTitle)
+								}
+								margin := len(plain) - len(strings.TrimLeft(plain, " "))
+								wantWidth := margin + ansi.StringWidth(preset.rail) + 1 + ansi.StringWidth(icon.reserved) + 1 + len(kind.title)
+								if got := ansi.StringWidth(line); got != wantWidth {
+									t.Fatalf("width = %d, want %d", got, wantWidth)
+								}
+								if got := ansi.Strip(ansi.Cut(line, wantWidth-len(kind.title), wantWidth)); got != kind.title {
+									t.Fatalf("display-column title slice = %q", got)
+								}
+								for _, cell := range themeCells(line) {
+									if cell.bold || (base == "notty" && (cell.fg != "default" || cell.bg != "none")) {
+										t.Fatalf("title override/notty violated: %+v", cell)
+									}
+								}
+								if base != "notty" && themeToken(t, line, kind.title).fg != "94" {
+									t.Fatalf("title color lost: %q", line)
+								}
+							}
+							plain := ansi.Strip(out)
+							if !found || strings.Contains(plain, "readmd-") || !strings.Contains(plain, preset.rail+" BODY") || !strings.Contains(plain, "AFTER") {
+								t.Fatalf("callout/adjacent content lost: %q", out)
+							}
+						})
+					}
+				}
+			}
+		}
+	}
+}

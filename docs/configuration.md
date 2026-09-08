@@ -164,7 +164,8 @@ not change that presentation. Image alt text keeps stock presentation.
 Inline backgrounds exclude stock indentation and trailing document padding.
 Heading-owned painted padding follows the heading override, including `bg: none`.
 
-Checkbox glyphs occupy 1..8 display columns; callout icons and rails occupy 1..4.
+Configured checkbox glyphs occupy 1..8 display columns; callout icons and rails
+occupy 1..4 (including explicit padding, excluding automatic icon reservation).
 Each is limited to 128 bytes, must have visible content and cannot contain controls,
 newlines or terminal escapes. Combining/ZWJ graphemes and private-use font glyphs
 are accepted; measured width and actual font appearance are not identical.
@@ -211,6 +212,14 @@ callout presentation. Plain blockquotes and body text are not restyled.
 Resolution is built-in per-type color/defaults, preset glyphs, shared controls,
 then per-type controls. The existing Unicode auto titles stay bold by default;
 `bold: false` really disables that. Per-type icons override the preset.
+
+Every enhanced callout icon reserves a trailing blank **in addition to** the
+one-space icon-to-title separator. If the icon has no trailing ASCII space, readmd
+adds one; otherwise its explicit padding is preserved without adding
+another reservation. Thus `icon: 'i'` and `icon: 'i '` both emit `i  Note`, while
+`icon: 'i  '` emits `i   Note`. This applies to both presets and custom icons, not
+rails or task checkboxes. The example file's active ` ` note override requires a
+Nerd Font or suitable symbols fallback even though its preset is `unicode`.
 
 ```yaml
 callouts:

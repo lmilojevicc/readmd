@@ -14,7 +14,7 @@ import (
 )
 
 // GFM alert kinds, rendered nvim-render-markdown style: type-colored rail,
-// bold colored `<icon> <Title>` heading, default-fg body. IMPORTANT's
+// bold colored `<icon><reservation> <Title>` heading, default-fg body. IMPORTANT's
 // conventional ❗ measures 2 cells, so ✱ (U+2731, 1 cell) stands in.
 var alertKinds = []struct {
 	name  string
@@ -251,7 +251,7 @@ func styleAlert(rows []string, a alert) ([]string, bool) {
 		l := rows[i]
 		s := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ansi.Strip(l)), "│"))
 		if !titleDone && strings.EqualFold(s, "[!"+a.name+"]") {
-			styled = append(styled, railSeq(a.sgr)+"\x1b["+a.sgr+";1m"+a.icon+" "+a.title+"\x1b[m")
+			styled = append(styled, railSeq(a.sgr)+"\x1b["+a.sgr+";1m"+alertTitle(a.icon, a.title)+"\x1b[m")
 			titleDone = true
 			if i+1 < len(rows) {
 				if s := strings.TrimSpace(ansi.Strip(rows[i+1])); s == "" || s == "│" {
@@ -263,6 +263,15 @@ func styleAlert(rows []string, a alert) ([]string, bool) {
 		styled = append(styled, strings.ReplaceAll(l, railSeq(quoteBarSGR), railSeq(a.sgr)))
 	}
 	return styled, titleDone
+}
+
+// Reserve a trailing blank for the glyph, separately from the title separator.
+// Explicit padding is preserved and already supplies that reservation.
+func alertTitle(icon, title string) string {
+	if !strings.HasSuffix(icon, " ") {
+		icon += " "
+	}
+	return icon + " " + title
 }
 
 func trimEdgeRows(rows []string) []string {
@@ -296,7 +305,7 @@ func styleCustomAlert(rows []string, a alert, base string, theme config.Callouts
 	titleStyle := mergeText(mergeText(config.TextStyle{FG: &color, Bold: boolPtr(true)}, theme.Title), specific.Title)
 	notty := base == "notty" || base == ""
 	rail = textSGR(railStyle, notty) + rail + "\x1b[m"
-	title := textSGR(titleStyle, notty) + a.icon + " " + a.title + "\x1b[m"
+	title := textSGR(titleStyle, notty) + alertTitle(a.icon, a.title) + "\x1b[m"
 	rows = trimEdgeRows(rows)
 	var result []string
 	done, afterTitle := false, false

@@ -221,3 +221,29 @@ func TestThemeDiscoveryPreservesBootstrapWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestParseThemeCalloutIconPadding(t *testing.T) {
+	for _, kind := range []string{"note", "tip", "important", "warning", "caution"} {
+		for _, tc := range []struct {
+			icon  string
+			valid bool
+		}{
+			{"", true}, {" ", true}, {" i  ", true},
+			{"abcd", true}, {"abcd ", false}, {"    ", false}, {"i\u3000", false},
+		} {
+			t.Run(kind+"/"+tc.icon, func(t *testing.T) {
+				theme, err := ParseTheme([]byte("callouts: {" + kind + ": {icon: '" + tc.icon + "'}}"))
+				if (err == nil) != tc.valid {
+					t.Fatalf("valid=%v error=%v", tc.valid, err)
+				}
+				if !tc.valid {
+					return
+				}
+				callout := map[string]Callout{"note": theme.Callouts.Note, "tip": theme.Callouts.Tip, "important": theme.Callouts.Important, "warning": theme.Callouts.Warning, "caution": theme.Callouts.Caution}[kind]
+				if callout.Icon == nil || *callout.Icon != tc.icon {
+					t.Fatalf("configured icon changed: %+v", callout)
+				}
+			})
+		}
+	}
+}
