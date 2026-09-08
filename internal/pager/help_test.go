@@ -48,7 +48,7 @@ func TestHelpOverlayFlow(t *testing.T) {
 	}
 	// The last group header can sit just above the clamped window; reaching
 	// the end of the listing is what this asserts.
-	if !strings.Contains(m.View().Content, "clear search / quit") {
+	if !strings.Contains(m.View().Content, "clear search / browser / quit") {
 		t.Fatal("scrolling should reach the last help entry")
 	}
 	if !strings.Contains(m.View().Content, fmt.Sprintf(" %d of %d ", len(formatHelp("")), len(formatHelp("")))) {
@@ -340,6 +340,13 @@ func assertKeyEffect(t *testing.T, m *Model, key string) {
 		m.locations = append(m.locations, documentLocation{y: 1})
 	}
 	switch key {
+	case "ctrl+f":
+		a := &Application{current: m, cwd: t.TempDir()}
+		t.Cleanup(a.Close)
+		appKey(a, "ctrl+f")
+		if !a.browsing || a.current != m {
+			t.Fatal("ctrl+f must open browser and retain reader")
+		}
 	case "j":
 		y0 := m.vp.YOffset()
 		pressKey(m, keyMsg(key))

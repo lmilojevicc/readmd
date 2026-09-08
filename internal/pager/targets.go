@@ -543,7 +543,7 @@ func (m *Model) activateTarget(target hintTarget) tea.Cmd {
 	}
 	opener := m.openURL
 	return func() tea.Msg {
-		return openedURLMsg{dest: dest, err: opener(dest)}
+		return m.result(openedURLMsg{dest: dest, err: opener(dest)})
 	}
 }
 

@@ -35,7 +35,7 @@ func (m *Model) editDoc() tea.Cmd {
 	}
 	m.edited = true
 	c := editorCmd(m.cursorSrcLine(), m.path)
-	return tea.ExecProcess(c, func(err error) tea.Msg { return editedMsg{err} })
+	return tea.ExecProcess(c, func(err error) tea.Msg { return m.result(editedMsg{err}) })
 }
 
 // editorArgv resolves $VISUAL/$EDITOR (vi as fallback) into program plus

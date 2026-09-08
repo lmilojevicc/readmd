@@ -38,6 +38,7 @@ var helpEntries = []helpEntry{
 	{"Backspace", "edit target / return footnote", "Navigation"},
 	{"m", "toggle mouse capture", "Modes"},
 	{"r", "toggle configured reader column", "Modes"},
+	{"ctrl+f", "browse Markdown files", "Modes"},
 	{"o", "outline: / filter; Enter jump; Esc/q/o cancel", "Modes"},
 	{"/", "search forward", "Search"},
 	{"n", "next match", "Search"},
@@ -47,7 +48,7 @@ var helpEntries = []helpEntry{
 	{"e", "edit document in $EDITOR", "Other"},
 	{"?", "help", "Other"},
 	{"q", "quit", "Other"},
-	{"esc", "clear search / quit", "Other"},
+	{"esc", "clear search / browser / quit", "Other"},
 }
 
 const helpTitle = "Keybindings"

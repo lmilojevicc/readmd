@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -129,9 +130,9 @@ func run() error {
 		if statErr != nil {
 			return fmt.Errorf("stat stdin: %w", statErr)
 		}
-		return errors.New(usage + " (or pipe markdown on stdin)")
+		// Interactive no-argument startup opens the Markdown browser.
 	}
-	if len(src) == 0 {
+	if name != "" && len(src) == 0 {
 		return errors.New("empty document")
 	}
 
@@ -145,24 +146,33 @@ func run() error {
 		in = tty
 	}
 
-	model, err := startupModel(string(src), name, opts, os.Stderr)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if name != "" && name != "(stdin)" {
+		name, err = filepath.Abs(name)
+		if err != nil {
+			return err
+		}
+	}
+	c, theme, err := startupSettings(opts, os.Stderr)
+	if err != nil {
+		return err
+	}
+	model, err := pager.NewApplication(string(src), name, cwd, c, theme)
 	if err != nil {
 		return err
 	}
 	defer model.Close()
 
-	p := tea.NewProgram(model, tea.WithInput(in))
+	p := tea.NewProgram(model, tea.WithInput(in), tea.WithFilter(pager.FilterApplicationMessage))
 	_, err = p.Run()
 	return err
 }
 
 func startupModel(source, name string, opts cliOpts, warnings io.Writer) (*pager.Model, error) {
-	c, err := config.Load(warnings)
-	if err != nil {
-		return nil, err
-	}
-	c = applyCLI(c, opts)
-	theme, err := config.LoadTheme(c.Theme, opts.theme)
+	c, theme, err := startupSettings(opts, warnings)
 	if err != nil {
 		return nil, err
 	}
@@ -176,4 +186,14 @@ func startupModel(source, name string, opts cliOpts, warnings io.Writer) (*pager
 	}
 
 	return model, nil
+}
+
+func startupSettings(opts cliOpts, warnings io.Writer) (config.Config, config.Theme, error) {
+	c, err := config.Load(warnings)
+	if err != nil {
+		return c, config.Theme{}, err
+	}
+	c = applyCLI(c, opts)
+	theme, err := config.LoadTheme(c.Theme, opts.theme)
+	return c, theme, err
 }

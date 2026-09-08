@@ -5,7 +5,7 @@
 style: auto # auto follows the terminal palette; dark, light, notty are fixed styles
 # theme: theme.yaml # optional; relative to this directory; --theme PATH wins
 mouse: true # m toggles capture for this session only
-picker: list # p opens list (focus/details panel) or vimium (inline badges/fallback)
+picker: list # link picker only: p opens list (focus/details) or vimium (badges)
 reader: false # r toggles the centered viewport for this session only
 reader_width: 120 # 1..10000 columns; viewport max(1, min(preference, terminal-2))
 table_cell_width: 40 # 1..10000 preferred body-cell wrap; full headers/atoms may exceed it

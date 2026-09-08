@@ -24,7 +24,7 @@ def png_chunk(kind, data):
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
 
-def check(binary, supported=True, disabled=False):
+def check(binary, supported=True, disabled=False, browser=False):
     with tempfile.TemporaryDirectory(prefix="readmd-image-pty-") as root:
         root = Path(root)
         env = os.environ.copy()
@@ -112,6 +112,26 @@ def check(binary, supported=True, disabled=False):
             else:
                 receive_until(b"wide local image")
                 assert query_count == 0, "graphics disabled/unsupported but cell query sent"
+            if browser:
+                start = len(transcript)
+                os.write(master, b"\x06")
+                receive_until(b"1 document", start)
+                receive_until(b"a=d", start)
+                # A cell report forces a hidden render; no pixels/placements may
+                # escape over the browser, even with asynchronous commands queued.
+                metrics = (14, 60)
+                os.write(master, b"\x1b[6;60;14t")
+                deadline = time.monotonic() + .5
+                while time.monotonic() < deadline:
+                    ready, _, _ = select.select([master], [], [], max(0, deadline-time.monotonic()))
+                    if ready:
+                        transcript.extend(os.read(master, 65536))
+                hidden = transcript[start:]
+                assert b"a=d" in hidden, "browser did not clear Kitty graphics"
+                assert b"a=t" not in hidden and b"a=p" not in hidden, "graphics over browser"
+                start = len(transcript)
+                os.write(master, b"\x1b")
+                receive_until(b"U=1,c=28,r=2,a=p", start)
             os.write(master, b"q")
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -132,13 +152,23 @@ def check(binary, supported=True, disabled=False):
             controls = re.findall(rb"\x1b_G(.*?)\x1b\\", transcript, re.DOTALL)
             transmissions = [c for c in controls if c.startswith(b"a=t,")]
             if supported and not disabled:
-                assert len(transmissions) == 1, "placement changes retransmitted pixels"
+                assert len(transmissions) == (2 if browser else 1), "unexpected pixel retransmission count"
                 assert b"f=32,s=800,v=200," in transmissions[0], transmissions[0][:100]
                 payload = b"".join(c.split(b";", 1)[1] for c in controls if b";" in c)
-                assert base64.b64decode(payload) == pixels, "RGBA payload changed"
+                if browser:
+                    # Each transmission has its own base64 padding.
+                    groups = []
+                    for control in controls:
+                        if control.startswith(b"a=t,"):
+                            groups.append([])
+                        if b";" in control:
+                            groups[-1].append(control.split(b";", 1)[1])
+                    assert [base64.b64decode(b"".join(parts)) for parts in groups] == [pixels, pixels], "RGBA payload changed"
+                else:
+                    assert base64.b64decode(payload) == pixels, "RGBA payload changed"
             else:
                 assert not controls and query_count == 0, "unexpected graphics/query escapes"
-            print(f"PASS image PTY supported={supported} disabled={disabled} queries={query_count}")
+            print(f"PASS image PTY supported={supported} disabled={disabled} queries={query_count} browser={browser}")
         finally:
             if not exited:
                 os.kill(pid, signal.SIGKILL)
@@ -148,5 +178,5 @@ def check(binary, supported=True, disabled=False):
 
 if __name__ == "__main__":
     executable = str(Path(sys.argv[1]).resolve())
-    for case in ((True, False), (True, True), (False, False)):
+    for case in ((True, False), (True, True), (False, False), (True, False, True)):
         check(executable, *case)

@@ -2,6 +2,7 @@ package pager
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -20,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -101,15 +103,22 @@ type place struct {
 
 // docGfx carries the terminal-global graphics escapes a rendered document
 // needs: data transmissions not yet sent plus virtual placements whose
-// geometry changed. Escapes are emitted by View (outside the scrolled
-// content); the store is marked only when the frame is actually applied.
+// geometry changed. Escapes travel outside viewport content through commands;
+// managed packets also pass the application's runtime visibility guard.
 type docGfx struct {
 	esc    string
 	tx     []int
 	places []place
 }
 
+var nextImageID atomic.Uint32
+
 type imageStore struct {
+	// Managed stores must not reuse IDs while retired deletion packets are queued.
+	uniqueIDs bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	allTx     map[int]bool
 	mu        sync.Mutex
 	refs      map[string]*imgRef
 	byID      map[int]*imgRef
@@ -123,7 +132,9 @@ type imageStore struct {
 }
 
 func newImageStore() *imageStore {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &imageStore{
+		ctx: ctx, cancel: cancel, allTx: map[int]bool{},
 		refs:     map[string]*imgRef{},
 		byID:     map[int]*imgRef{},
 		bad:      map[string]bool{},
@@ -146,7 +157,11 @@ func (st *imageStore) ensureRef(key string, d *imgData) *imgRef {
 	if r := st.refs[key]; r != nil {
 		return r
 	}
-	r := &imgRef{id: len(st.byID) + 1, data: d}
+	id := len(st.byID) + 1
+	if st.uniqueIDs {
+		id = int(nextImageID.Add(1))
+	}
+	r := &imgRef{id: id, data: d}
 	st.refs[key] = r
 	st.byID[r.id] = r
 	return r
@@ -214,6 +229,7 @@ func (st *imageStore) applyGfx(tx []int, places []place) {
 	defer st.mu.Unlock()
 	for _, id := range tx {
 		st.tx[id] = true
+		st.allTx[id] = true
 	}
 	for _, p := range places {
 		st.placed[p.id] = [2]int{p.cols, p.rows}
@@ -238,8 +254,11 @@ func (st *imageStore) transmittedIDs() []int {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	var ids []int
+	for id := range st.allTx {
+		ids = append(ids, id)
+	}
 	for id := range st.tx {
-		if st.tx[id] {
+		if st.tx[id] && !st.allTx[id] {
 			ids = append(ids, id)
 		}
 	}
@@ -705,7 +724,12 @@ func fetchOne(key string, st *imageStore) tea.Msg {
 		st.fail(key)
 		return imagesDoneMsg{left: st.finishFetch(key)}
 	}
-	resp, err := httpClient.Get(key)
+	req, err := http.NewRequestWithContext(st.ctx, http.MethodGet, key, nil)
+	if err != nil {
+		st.fail(key)
+		return imagesDoneMsg{left: st.finishFetch(key)}
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		st.fail(key)
 		return imagesDoneMsg{left: st.finishFetch(key)}
@@ -744,9 +768,13 @@ func (m *Model) fetchPending(urls []string) tea.Cmd {
 			continue
 		}
 		cmds = append(cmds, func() tea.Msg {
-			st.sem <- struct{}{}
+			select {
+			case st.sem <- struct{}{}:
+			case <-st.ctx.Done():
+				return m.result(imagesDoneMsg{left: st.finishFetch(u)})
+			}
 			defer func() { <-st.sem }()
-			return fetchOne(u, st)
+			return m.result(fetchOne(u, st))
 		})
 	}
 	if len(cmds) == 0 {
@@ -758,6 +786,9 @@ func (m *Model) fetchPending(urls []string) tea.Cmd {
 func (m *Model) SetImages(cfg ImageConfig) {
 	m.imgCfg = cfg
 	m.gfx = graphicsDetected(os.Getenv) && !cfg.NoImages
+	if m.store != nil {
+		m.store.cancel()
+	}
 	m.store = newImageStore()
 }
 

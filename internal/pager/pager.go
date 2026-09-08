@@ -15,11 +15,13 @@ import (
 )
 
 type Model struct {
-	vp     viewport.Model
-	source string
-	title  string
-	width  int
-	height int
+	managed, hidden bool
+	graphicsEpoch   uint64
+	vp              viewport.Model
+	source          string
+	title           string
+	width           int
+	height          int
 
 	style          string
 	picker         pickerDesign
@@ -192,13 +194,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.errMsg = ""
 		m.syncView(strings.Split(msg.content, "\n"), msg.stripped, msg.heads, msg.links)
-		if m.store != nil {
+		if m.store != nil && !m.hidden {
 			m.store.applyGfx(msg.gfx.tx, msg.gfx.places)
 		}
 		if msg.warn != "" {
 			m.errMsg = msg.warn
 		}
-		return m, tea.Batch(gfxCmd(msg.gfx.esc), m.fetchPending(msg.pending))
+		return m, tea.Batch(m.graphics(msg.gfx.esc), m.fetchPending(msg.pending))
 
 	case docChangedMsg:
 		m.stopTargets(true)
@@ -474,18 +476,18 @@ func (m *Model) requestRender() tea.Cmd {
 	return func() tea.Msg {
 		out, pending, g, err := renderThemedDoc(o, src, wrapWidth, st, theme, cellWidth)
 		if err != nil {
-			return renderedMsg{err: err, gen: gen}
+			return m.result(renderedMsg{err: err, gen: gen})
 		}
 		base := strings.Split(out, "\n")
 		stripped := splitStrip(out)
 		heads := extractHeadings(src)
 		mapHeadings(heads, stripped)
 		links := renderedTargets(src, base, stripped)
-		return renderedMsg{
+		return m.result(renderedMsg{
 			content: out, gen: gen,
 			heads: heads, stripped: stripped, links: links, pending: pending,
 			gfx: g, warn: warnFrom(o.store),
-		}
+		})
 	}
 }
 
@@ -546,7 +548,7 @@ func (m *Model) View() tea.View {
 	}
 	if chrome.notice {
 		if m.errMsg != "" {
-			rows = append(rows, ansi.Truncate(errStyle.Render(m.errMsg), m.width, "…"))
+			rows = append(rows, ansi.Truncate(errStyle.Render(safeFilename(m.errMsg)), m.width, "…"))
 		} else {
 			rows = append(rows, ansi.Truncate(errStyle.Render(m.flash), m.width, "…"))
 		}

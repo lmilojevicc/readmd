@@ -70,6 +70,8 @@ does not bypass image security or resource limits. See [images](usage.md#images)
 
 ## Picker and mouse preferences
 
+`picker` configures only the `p` link/footnote picker, not the Markdown file browser.
+
 `picker: list` (default) uses a bottom-attached focus/details panel.
 `picker: vimium` uses modest candidate underlines and per-occurrence inline
 badges; cramped or colliding targets go to a pageable fallback shelf. `Tab` or

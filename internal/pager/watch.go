@@ -193,6 +193,9 @@ func (m *Model) SetPath(path string) { m.path = path }
 func (m *Model) Close() {
 	m.fw.stop()
 	m.fw = nil
+	if m.store != nil {
+		m.store.cancel()
+	}
 }
 
 func (m *Model) waitForChange() tea.Cmd {
@@ -200,7 +203,7 @@ func (m *Model) waitForChange() tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case <-fw.tick:
-			return docChangedMsg{}
+			return m.result(docChangedMsg{})
 		case <-fw.stopped:
 			return nil
 		}
@@ -211,7 +214,7 @@ func (m *Model) reload() tea.Cmd {
 	path, read := m.path, m.readFile
 	return func() tea.Msg {
 		b, err := read(path)
-		return reloadDoneMsg{body: b, err: err}
+		return m.result(reloadDoneMsg{body: b, err: err})
 	}
 }
 

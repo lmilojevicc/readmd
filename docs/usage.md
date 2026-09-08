@@ -5,6 +5,7 @@
 ## Open a document
 
 ```sh
+readmd                    # recursive Markdown browser
 readmd README.md          # pager
 cat notes.md | readmd     # stdin when piped, with no file argument
 readmd --style dark a.md  # fixed theme instead of palette-adaptive
@@ -30,18 +31,52 @@ Linux and macOS are supported; Windows support is not promised.
 | `Backspace` | Return from a footnote jump in normal mode. |
 | `m` | Toggle mouse capture (enabled by default). |
 | `r` | Toggle centered reader viewport (120 columns by default) with horizontal panning. |
+| `Ctrl+f` | Browse Markdown files (normal reader only). |
 | `o` | Outline: `j`/`k` or wheel preview, `/` filters titles, `Enter` commits, `Esc`/`q`/`o` cancel; prompt `Esc` clears first. |
 | `/` | Forward search; `n` / `N` next / previous match (highlighted). |
 | `?` | Help overlay: `j`/`k` scroll; any other key closes at the original position. |
 | `R` | Reload file (unavailable for stdin). |
 | `c` | Copy raw Markdown to clipboard via OSC 52; oversized documents decline with a notice. |
 | `e` | Edit in `$VISUAL`/`$EDITOR` (`vi` fallback) at the nearest heading above the viewport; reload on exit (unavailable for stdin). |
-| `q` `Esc` | Quit (`Esc` first clears an active search). |
+| `q` `Esc` | `q` quits; `Esc` clears search first, then returns to the browser for a file opened there, otherwise quits. |
 
 Lowercase `s`, `t`, and `w` are unbound in normal mode and literal input in
 prompts. There is no `T` table mode, wrap-mode toggle, table-records mode, or
 source view. There is no backward-search prompt; `N` visits previous matches
 of the forward search.
+
+## File browser
+
+With no arguments and an interactive stdin, `readmd` lists Markdown recursively
+below the current directory. Piped input remains the stdin reader; a file argument
+still opens that file, even when stdin is piped. Directory arguments are not supported.
+`Ctrl+f` opens the browser from the normal reader, initially rooted at the current
+file's directory (the working directory for stdin). Prompts and overlays keep priority.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k`, arrows | Select. |
+| `h` / `l`, left / right | Previous / next page. |
+| `/` | Fuzzy filter relative filenames, not document content. |
+| `Enter` | Apply the current filter and open the selected file. |
+| `r` | Refresh, retaining the selected path when possible. |
+| `?` | Toggle help. |
+| `Esc` | Close help or clear the filter first; then return to the retained reader, or quit if none. |
+| `q`, `Ctrl+c` | Quit (`q` is literal while typing a filter). |
+
+Rows show relative paths and modification times, sorted by filesystem path. The
+browser includes ignored files, hidden directories such as `.github`, and `.md` /
+`.markdown` extensions regardless of case. It skips directories named `.git`,
+`.hg`, `.svn`, `node_modules`, `vendor`, and `.venv` at any depth below its root.
+Directory symlinks are never traversed; symlinks to regular Markdown files are
+included. Permission/stat failures report a notice without discarding usable
+results. Unsafe filename characters are escaped for display only.
+
+The browser retains its root, filter, page and selection between visits. Canceling
+browsing preserves the current reader and position; successful opens start fresh
+with the startup settings. Empty, missing, unreadable or nonregular files leave
+the browser usable and the prior reader intact. Images are cleared while browsing.
+There is no content preview, browser editor, or per-file reading history.
 
 ## Reader, outline, and search
 

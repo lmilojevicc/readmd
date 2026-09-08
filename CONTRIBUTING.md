@@ -34,6 +34,8 @@ bootstrap a contributor's real config. For manual startup checks:
 scratch=$(mktemp -d)
 GOWORK=off go build -o "$scratch/readmd" .
 python3 testdata/startup_pty.py "$scratch/readmd"
+python3 testdata/file_picker_pty.py "$scratch/readmd"
+python3 testdata/image_size_pty.py "$scratch/readmd"
 rm -rf "$scratch"
 ```
 

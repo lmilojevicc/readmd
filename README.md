@@ -39,6 +39,7 @@ is on your `PATH`.
 ## Read
 
 ```sh
+readmd                   # browse Markdown below the current directory
 readmd README.md
 cat notes.md | readmd
 ```
@@ -47,6 +48,7 @@ cat notes.md | readmd
 - `o` opens the outline; `/` searches and `n` finds the next match.
 - `p` selects links or footnotes by keyboard; click them with the mouse.
 - `r` toggles the centered reader view; `m` releases mouse capture for selection.
+- `Ctrl+f` browses files; `Esc` returns to the browser for files opened there.
 - `?` shows help; `q` quits.
 
 See [Usage](docs/usage.md) for controls and terminal support, or

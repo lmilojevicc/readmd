@@ -58,6 +58,8 @@ jobs:
         run: |
           GOWORK=off go build -o "$RUNNER_TEMP/readmd" .
           python3 testdata/startup_pty.py "$RUNNER_TEMP/readmd"
+          python3 testdata/file_picker_pty.py "$RUNNER_TEMP/readmd"
+          python3 testdata/image_size_pty.py "$RUNNER_TEMP/readmd"
 
   lint:
     name: Lint

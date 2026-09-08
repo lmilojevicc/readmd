@@ -40,7 +40,7 @@ CI tests Linux and macOS; Windows support is not promised. See
 - Table-driven tests only, no test frameworks.
 - Golden corpus lives in `testdata/` and is rendered at widths {40, 80, 120}; assertions: no panic, content tokens and table geometry survive, graphemes never split.
 - Every phase leaves at least one runnable check that fails if its logic breaks.
-- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 p m r o / ? n N R c e q Esc. Lowercase `s`, `t` and `w` are unbound (literal in prompts). `Esc` clears an active search, then quits. `o` = help-style outline (j/k and wheel preview headings, `/` filters titles, Enter commits, Esc/q/o cancel without moving; prompt Esc clears prompt/filter before a later Esc closes). `p` = visible-target hints for links and footnote references (type the fixed-width label, Backspace edits, Esc cancels); normal-mode Backspace returns from an internal jump. Mouse capture defaults on: clicks activate visible targets, the wheel scrolls, and `m` toggles capture for terminal-native selection/scrolling; Shift-selection support varies by terminal. `r` = reader viewport toggle: viewport width becomes max(1, min(reader_width, vw-2)) with a uniform display-only left margin (block centering) and horizontal panning; position preserved via the heading anchor; status bar gains a `reader` tag. `R` = reload file (stdin documents refuse). `/` = forward search prompt, `n`/`N` = next/previous match; there is NO backward search. `?` = help overlay (j/k scroll, any other key closes at the exact position). `c` = copy raw markdown via OSC 52 (oversized documents decline with a flash). `e` = edit in $VISUAL/$EDITOR (vi fallback) positioned at the nearest heading above the viewport top via `+N`; stdin documents refuse; editor exit reloads through the live-reload path (flash `edited`, watcher ticks during the edit coalesce with it).
+- Keybindings (pager conventions): j/k d/u ctrl+d/ctrl+u f/b/space g/G h/l/0 p m r o / ? n N R c e q Esc. Lowercase `s`, `t` and `w` are unbound (literal in prompts). `Ctrl+f` opens the file browser only in normal reader mode. `Esc` clears an active search, then returns to the browser for browser-opened documents, otherwise quits. `o` = help-style outline (j/k and wheel preview headings, `/` filters titles, Enter commits, Esc/q/o cancel without moving; prompt Esc clears prompt/filter before a later Esc closes). `p` = visible-target hints for links and footnote references (type the fixed-width label, Backspace edits, Esc cancels); normal-mode Backspace returns from an internal jump. Mouse capture defaults on: clicks activate visible targets, the wheel scrolls, and `m` toggles capture for terminal-native selection/scrolling; Shift-selection support varies by terminal. `r` = reader viewport toggle: viewport width becomes max(1, min(reader_width, vw-2)) with a uniform display-only left margin (block centering) and horizontal panning; position preserved via the heading anchor; status bar gains a `reader` tag. `R` = reload file (stdin documents refuse). `/` = forward search prompt, `n`/`N` = next/previous match; there is NO backward search. `?` = help overlay (j/k scroll, any other key closes at the exact position). `c` = copy raw markdown via OSC 52 (oversized documents decline with a flash). `e` = edit in $VISUAL/$EDITOR (vi fallback) positioned at the nearest heading above the viewport top via `+N`; stdin documents refuse; editor exit reloads through the live-reload path (flash `edited`, watcher ticks during the edit coalesce with it).
 
 ## Workflow
 
@@ -64,6 +64,34 @@ Development runs as an agent loop: implementer → three parallel reviewers (spe
 - YAML: `$XDG_CONFIG_HOME/readmd/config.yaml`, otherwise `$HOME/.config/readmd/config.yaml` on all platforms. Reject relative XDG paths; never use additional search paths. Defaults and comments: `config.example.yaml`.
 - Validate the whole strict single-mapping file before explicit existing CLI overrides (`--style`, `--theme`, `--no-images`, `--no-remote-images`). Unknown/duplicate keys, wrong types, and widths outside 1..10000 are errors. No live reload or persistence of runtime toggles.
 - Missing config bootstraps via a fully written private temporary file and create-only hard link. Existing config is never replaced. Creation failure warns; an unreadable/malformed existing file errors with its path. CLI usage errors must precede filesystem effects. CLI/PTY tests must isolate HOME/XDG.
-- `picker: list|vimium` selects the presentation at startup; default list. One targetMode owns frozen candidates/labels, safe coordinate rows, and saved geometry/notices. Concrete list/vimium substates and direct enum boundaries only; no plugin framework. Preserve unsafe physical-wrap refusal for CJK/grapheme slices, final View/hit-plan agreement, overlay click-through guards, footnote history, and in-flight render refusal.
+- `picker: list|vimium` selects only the link/footnote presentation at startup; default list. One targetMode owns frozen candidates/labels, safe coordinate rows, and saved geometry/notices. Concrete list/vimium substates and direct enum boundaries only; no plugin framework. Preserve unsafe physical-wrap refusal for CJK/grapheme slices, final View/hit-plan agreement, overlay click-through guards, footnote history, and in-flight render refusal.
 - `mouse: true` defaults capture on; `reader: false`, `reader_width: 120`, `table_cell_width: 40`, `images: true`, `remote_images: true`. Configuration does not bypass graphics detection or image security. Async render commands snapshot settings before execution.
 - Source view is removed. Preserve raw `Model.source`, heading source lines, semantic link/footnote source parsing, sanitize, copy/edit/reload, and shared geometry helpers. Blockquotes (including list-nested quotes) preserve source line breaks and stock rail/list indentation; ordinary paragraph soft breaks still flow.
+
+## Markdown file browser
+
+- Interactive no-argument startup browses cwd recursively; piped stdin and explicit
+  file startup remain readers. No directory argument support. Normal `Ctrl+f`
+  browses the current file directory (cwd for stdin) on the first visit; never
+  intercept prompts/overlays or change `p`, `o`, `f`/space.
+- Use public Bubbles v2 list/default delegate/filter/paginator/help. Two-line safe
+  relative-path/mtime rows, deterministic raw-path ordering, palette colors with
+  no new backgrounds, responsive pages; no content previews. `j/k` select,
+  `h/l` page, `/` filters filenames, Enter applies and opens, `r` refreshes,
+  `?` helps, `q` quits outside the filter, Ctrl+C always quits. Browser Esc clears
+  help/filter before returning to the retained reader or quitting without one.
+- Include ignored/hidden `.md` and `.markdown` case-insensitively; skip directory
+  names `.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `.venv`. Never traverse
+  directory symlinks; regular-file symlinks are eligible. Keep usable partial
+  results on permission errors. Raw paths stay separate from escaped single-line
+  display/filter strings; match highlights and truncation preserve graphemes.
+- Pointer-owned Application retains browser state and one current reader. Opens
+  are transactional and asynchronous; failed opens retain both. Fresh documents
+  use immutable startup config/theme snapshots. Scan/read cancellation and scan,
+  filter, open generations reject stale work. Each document completion carries
+  its originating reader; retired watchers close and image downloads cancel.
+- The Tea program must install FilterApplicationMessage: it guards only managed
+  graphics at the runtime boundary so queued packets cannot paint over browsing
+  or replacement documents. Keep native Raw/Exec/Batch controls native. Managed
+  Kitty stores use non-reused image IDs, clear on browsing, and retransmit on
+  return; final Close reaches the latest watcher/store, including program errors.
