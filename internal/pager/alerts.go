@@ -13,20 +13,19 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// GFM alert kinds, rendered nvim-render-markdown style: type-colored rail,
-// bold colored `<icon><reservation> <Title>` heading, default-fg body. IMPORTANT's
-// conventional ❗ measures 2 cells, so ✱ (U+2731, 1 cell) stands in.
+// GFM alert kinds: type-colored rail, bold colored `<icon> <Title>` heading,
+// default-fg body. Default icons use the Nerd Fonts Octicons family.
 var alertKinds = []struct {
 	name  string
 	icon  string
 	title string
 	sgr   string
 }{
-	{"note", "ⓘ", "Note", "94"},
-	{"tip", "✦", "Tip", "92"},
-	{"important", "✱", "Important", "95"},
-	{"warning", "⚠", "Warning", "93"},
-	{"caution", "✖", "Caution", "91"},
+	{"note", "\uf449", "Note", "94"},
+	{"tip", "\uf400", "Tip", "92"},
+	{"important", "\uf50a", "Important", "95"},
+	{"warning", "\uf421", "Warning", "93"},
+	{"caution", "\uf46e", "Caution", "91"},
 }
 
 const alertTokenFmt = "readmd-alert-%s%d%s"
@@ -265,12 +264,7 @@ func styleAlert(rows []string, a alert) ([]string, bool) {
 	return styled, titleDone
 }
 
-// Reserve a trailing blank for the glyph, separately from the title separator.
-// Explicit padding is preserved and already supplies that reservation.
 func alertTitle(icon, title string) string {
-	if !strings.HasSuffix(icon, " ") {
-		icon += " "
-	}
 	return icon + " " + title
 }
 
@@ -287,9 +281,13 @@ func trimEdgeRows(rows []string) []string {
 func styleCustomAlert(rows []string, a alert, base string, theme config.Callouts) ([]string, bool) {
 	specific := map[string]config.Callout{"note": theme.Note, "tip": theme.Tip, "important": theme.Important, "warning": theme.Warning, "caution": theme.Caution}[a.name]
 	rail := "│"
-	if theme.Preset != nil && *theme.Preset == "nerd" {
-		a.icon = map[string]string{"note": "\U000f02fd", "tip": "\U000f0336", "important": "\U000f017e", "warning": "\U000f002a", "caution": "\U000f0ce6"}[a.name]
-		rail = "▋"
+	if theme.Preset != nil {
+		switch *theme.Preset {
+		case "unicode":
+			a.icon = map[string]string{"note": "ⓘ", "tip": "✦", "important": "✱", "warning": "⚠", "caution": "✖"}[a.name]
+		case "nerd":
+			rail = "▋"
+		}
 	}
 	if theme.Rail.Glyph != nil {
 		rail = *theme.Rail.Glyph

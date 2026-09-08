@@ -412,10 +412,90 @@ func TestThemeMalformedMarkers(t *testing.T) {
 	}
 }
 
+func TestThemeCalloutIconDefaults(t *testing.T) {
+	for _, kind := range []struct{ name, title, octicon, unicode, fg string }{
+		{"note", "Note", "\uf449", "ⓘ", "94"},
+		{"tip", "Tip", "\uf400", "✦", "92"},
+		{"important", "Important", "\uf50a", "✱", "95"},
+		{"warning", "Warning", "\uf421", "⚠", "93"},
+		{"caution", "Caution", "\uf46e", "✖", "91"},
+	} {
+		for _, tc := range []struct {
+			name, yaml, icon, rail string
+			configured             bool
+		}{
+			{"unconfigured", "", kind.octicon, "│", false},
+			{"empty theme", "{}", kind.octicon, "│", false},
+			{"other role only", "strong: {fg: '#123456'}", kind.octicon, "│", false},
+			{"empty callouts", "callouts: {}", kind.octicon, "│", false},
+			{"empty title", "callouts: {title: {}}", kind.octicon, "│", false},
+			{"omitted preset shared", "callouts: {title: {bold: true}}", kind.octicon, "│", true},
+			{"omitted preset per type", "callouts: {" + kind.name + ": {title: {bold: true}}}", kind.octicon, "│", true},
+			{"unicode", "callouts: {preset: unicode}", kind.unicode, "│", true},
+			{"nerd", "callouts: {preset: nerd}", kind.octicon, "▋", true},
+			{"default override", "callouts: {" + kind.name + ": {icon: ' X '}}", " X ", "│", true},
+			{"unicode override", "callouts: {preset: unicode, " + kind.name + ": {icon: ' X '}}", " X ", "│", true},
+			{"nerd override", "callouts: {preset: nerd, " + kind.name + ": {icon: ' X '}}", " X ", "▋", true},
+		} {
+			for _, base := range []string{paletteStyleName, "dark", "light", "notty"} {
+				for _, width := range []int{1, 40} {
+					t.Run(fmt.Sprintf("%s/%s/%s/%d", kind.name, tc.name, base, width), func(t *testing.T) {
+						src := "> [!" + strings.ToUpper(kind.name) + "]\n> BODY\n> NEXT\n\n> QUOTE\n"
+						out := renderThemeTest(t, src, base, tc.yaml, width)
+						theme, err := config.ParseTheme([]byte(tc.yaml))
+						if err != nil {
+							t.Fatal(err)
+						}
+						stock, _, _, err := renderThemedStyled(imgCtx{}, src, width, base, false, theme, 12)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if base != paletteStyleName && !tc.configured {
+							if out != stock {
+								t.Fatalf("unconfigured non-auto callout changed:\n%q\n%q", out, stock)
+							}
+							return
+						}
+						plain := ansi.Strip(out)
+						want := tc.rail + " " + tc.icon + " " + kind.title
+						found := false
+						for _, line := range strings.Split(plain, "\n") {
+							if strings.TrimLeft(line, " ") == want {
+								found = true
+							}
+						}
+						if !found || strings.Contains(plain, "[!") || strings.Contains(plain, "readmd-") {
+							t.Fatalf("want exact enhanced title %q, got %q", want, out)
+						}
+						fg := kind.fg
+						if base == "notty" {
+							fg = "default"
+						}
+						if cell := themeToken(t, out, kind.title); cell.fg != fg || cell.bg != "none" || !cell.bold {
+							t.Fatalf("default title style changed: %+v", cell)
+						}
+						if cell := themeToken(t, out, tc.rail); cell.fg != fg || cell.bg != "none" || cell.bold {
+							t.Fatalf("default rail style changed: %+v", cell)
+						}
+						for _, token := range []string{"BODY", "NEXT", "QUOTE"} {
+							if got, want := themeToken(t, out, token), themeToken(t, stock, token); got != want {
+								t.Fatalf("%s style changed: %+v, want %+v", token, got, want)
+							}
+						}
+						if !strings.Contains(plain, tc.rail+" BODY\n") || !strings.Contains(plain, tc.rail+" NEXT\n") {
+							t.Fatalf("body lines/rail spacing changed: %q", plain)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 func TestThemeCallouts(t *testing.T) {
 	for _, base := range []string{paletteStyleName, "dark", "light", "notty"} {
 		t.Run(base, func(t *testing.T) {
-			for _, tc := range []struct{ name, icon string }{{"NOTE", "\U000f02fd"}, {"TIP", "\U000f0336"}, {"IMPORTANT", "\U000f017e"}, {"WARNING", "\U000f002a"}, {"CAUTION", "\U000f0ce6"}} {
+			for _, tc := range []struct{ name, icon string }{{"NOTE", "\uf449"}, {"TIP", "\uf400"}, {"IMPORTANT", "\uf50a"}, {"WARNING", "\uf421"}, {"CAUTION", "\uf46e"}} {
 				t.Run(tc.name, func(t *testing.T) {
 					src := "> [!" + tc.name + "]\n> BODY [link](https://example.com/full)\n> next line\n"
 					out := renderThemeTest(t, src, base, "callouts: {preset: nerd, rail: {glyph: ▋, fg: 2}, title: {bold: false}}", 40)
@@ -799,25 +879,25 @@ func TestThemeAllHeadingLevels(t *testing.T) {
 
 func TestThemeCalloutIconPadding(t *testing.T) {
 	for _, kind := range []struct{ name, title, unicode, nerd string }{
-		{"note", "Note", "ⓘ", "\U000f02fd"},
-		{"tip", "Tip", "✦", "\U000f0336"},
-		{"important", "Important", "✱", "\U000f017e"},
-		{"warning", "Warning", "⚠", "\U000f002a"},
-		{"caution", "Caution", "✖", "\U000f0ce6"},
+		{"note", "Note", "ⓘ", "\uf449"},
+		{"tip", "Tip", "✦", "\uf400"},
+		{"important", "Important", "✱", "\uf50a"},
+		{"warning", "Warning", "⚠", "\uf421"},
+		{"caution", "Caution", "✖", "\uf46e"},
 	} {
 		for _, preset := range []struct{ name, icon, rail string }{
 			{"unicode", kind.unicode, "│"}, {"nerd", kind.nerd, "▋"},
 		} {
-			for _, icon := range []struct{ name, override, reserved string }{
-				{"preset", "", preset.icon + " "},
-				{"custom", "i", "i "},
+			for _, icon := range []struct{ name, override, rendered string }{
+				{"preset", "", preset.icon},
+				{"custom", "i", "i"},
 				{"padded", "i ", "i "},
-				{"user glyph", "", " "},
+				{"user glyph", "", ""},
 				{"user padded", " ", " "},
 				{"explicit spaces", " i  ", " i  "},
-				{"wide", "界", "界 "},
-				{"grapheme", "👩‍💻", "👩‍💻 "},
-				{"max width", "abcd", "abcd "},
+				{"wide", "界", "界"},
+				{"grapheme", "👩‍💻", "👩‍💻"},
+				{"max width", "abcd", "abcd"},
 			} {
 				for _, base := range []string{paletteStyleName, "dark", "light", "notty"} {
 					for _, width := range []int{1, 40} {
@@ -829,7 +909,7 @@ func TestThemeCalloutIconPadding(t *testing.T) {
 							yaml := "callouts: {preset: " + preset.name + ", title: {bold: true}, " + kind.name + ": {" + override + "rail: {fg: 12}, title: {fg: 12, bold: false}}}"
 							src := "> [!" + strings.ToUpper(kind.name) + "]\n> BODY\n\n> QUOTE\n\n# AFTER\n"
 							out := renderThemeTest(t, src, base, yaml, width)
-							wantTitle := icon.reserved + " " + kind.title
+							wantTitle := icon.rendered + " " + kind.title
 							want := preset.rail + " " + wantTitle
 							found := false
 							for _, line := range strings.Split(out, "\n") {
@@ -842,7 +922,7 @@ func TestThemeCalloutIconPadding(t *testing.T) {
 									t.Fatalf("styled title = %q, want prefix %q and intact styled title %q", line, want, wantTitle)
 								}
 								margin := len(plain) - len(strings.TrimLeft(plain, " "))
-								wantWidth := margin + ansi.StringWidth(preset.rail) + 1 + ansi.StringWidth(icon.reserved) + 1 + len(kind.title)
+								wantWidth := margin + ansi.StringWidth(preset.rail) + 1 + ansi.StringWidth(icon.rendered) + 1 + len(kind.title)
 								if got := ansi.StringWidth(line); got != wantWidth {
 									t.Fatalf("width = %d, want %d", got, wantWidth)
 								}

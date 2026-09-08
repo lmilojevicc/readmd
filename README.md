@@ -54,6 +54,9 @@ See [Usage](docs/usage.md) for controls and terminal support, or
 
 Custom colors, glyphs and callout presets use a separate partial
 [theme file](docs/configuration.md#custom-themes); start from [theme.example.yaml](theme.example.yaml).
+Default enhanced callout icons require a compatible Nerd Font or Octicons-capable
+fallback. Set `callouts: {preset: unicode}` in your theme for portable icons
+(without font-dependent per-type overrides).
 
 ## Contribute
 

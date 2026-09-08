@@ -165,7 +165,7 @@ Inline backgrounds exclude stock indentation and trailing document padding.
 Heading-owned painted padding follows the heading override, including `bg: none`.
 
 Configured checkbox glyphs occupy 1..8 display columns; callout icons and rails
-occupy 1..4 (including explicit padding, excluding automatic icon reservation).
+occupy 1..4 (including explicit padding, excluding the icon/title separator).
 Each is limited to 128 bytes, must have visible content and cannot contain controls,
 newlines or terminal escapes. Combining/ZWJ graphemes and private-use font glyphs
 are accepted; measured width and actual font appearance are not identical.
@@ -203,23 +203,24 @@ callout presentation. Plain blockquotes and body text are not restyled.
 
 `callouts` accepts:
 
-- `preset: unicode|nerd` (default Unicode icons `ⓘ ✦ ✱ ⚠ ✖` and rail `│`).
+- `preset: unicode|nerd`: omission uses Octicons `    ` and rail `│`;
+  `unicode` selects portable icons `ⓘ ✦ ✱ ⚠ ✖` and rail `│`; `nerd` uses the
+  same Octicons as the default, with rail `▋`.
 - `rail`: shared text style plus `glyph`.
 - `title`: shared text style, covering icon and title, not body text.
 - `note`, `tip`, `important`, `warning`, `caution`: each accepts `icon`, `rail`
   (same shape as shared rail), and `title` (same text-style shape).
 
 Resolution is built-in per-type color/defaults, preset glyphs, shared controls,
-then per-type controls. The existing Unicode auto titles stay bold by default;
-`bold: false` really disables that. Per-type icons override the preset.
+then per-type controls. Enhanced titles stay bold by default; `bold: false`
+really disables that. Per-type icons override the preset. Unconfigured auto
+callouts and partial themes with no preset inherit the default Octicons. Empty
+mappings do not enable enhancement on non-auto bases.
 
-Every enhanced callout icon reserves a trailing blank **in addition to** the
-one-space icon-to-title separator. If the icon has no trailing ASCII space, readmd
-adds one; otherwise its explicit padding is preserved without adding
-another reservation. Thus `icon: 'i'` and `icon: 'i '` both emit `i  Note`, while
-`icon: 'i  '` emits `i   Note`. This applies to both presets and custom icons, not
-rails or task checkboxes. The example file's active ` ` note override requires a
-Nerd Font or suitable symbols fallback even though its preset is `unicode`.
+Every enhanced callout uses exactly one icon-to-title separator space, with no
+extra automatic reservation. All explicit icon spaces are preserved: `icon: 'i'`
+emits `i Note`, `icon: 'i '` emits `i  Note`, and `icon: ' i  '` emits ` i   Note`.
+This applies to both presets and custom icons, not rails or task checkboxes.
 
 ```yaml
 callouts:
@@ -229,12 +230,28 @@ callouts:
   # note: {icon: 'i', title: {fg: 12}}
 ```
 
-The Nerd preset uses note U+F02FD, tip U+F0336, important U+F017E, warning U+F002A,
-and caution U+F0CE6, plus rail U+258B (`▋`). These are the
-[render-markdown.nvim defaults](https://github.com/MeanderingProgrammer/render-markdown.nvim/blob/4663eb3ecd538bd5062628fb6d95bbe6bdca78f6/lua/render-markdown/settings.lua),
-not a promise of matching a particular screenshot. Use Nerd Fonts 3.x Mono or a
-suitable symbols fallback; no fonts are bundled or auto-detected. Optical size,
-overflow, fallback and terminal width behavior vary even with identical codepoints.
+Default and `nerd` icons use one Nerd Fonts family, Octicons:
+
+| Type | Nerd Fonts name | Codepoint |
+|------|-----------------|-----------|
+| Note | `nf-oct-info` | U+F449 |
+| Tip | `nf-oct-light_bulb` | U+F400 |
+| Important | `nf-oct-report` | U+F50A |
+| Warning | `nf-oct-alert` | U+F421 |
+| Caution | `nf-oct-stop` | U+F46E |
+
+These default icons require a compatible Nerd Font or an Octicons-capable symbols
+fallback covering all five glyphs. No fonts are bundled or auto-detected. Older
+or custom-patched fonts may lack glyphs; optical size, overflow, fallback and
+terminal width behavior vary even with identical codepoints.
+
+For portable icons without that font requirement, explicitly select Unicode in
+your theme and omit any font-dependent per-type icon overrides:
+
+```yaml
+callouts:
+  preset: unicode
+```
 
 ### Renderer boundary
 

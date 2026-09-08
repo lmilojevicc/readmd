@@ -33,7 +33,7 @@ func TestAlertGoldens(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			title := railSeq(k.sgr) + "\x1b[" + k.sgr + ";1m" + k.icon + "  " + k.title + "\x1b[m"
+			title := railSeq(k.sgr) + "\x1b[" + k.sgr + ";1m" + k.icon + " " + k.title + "\x1b[m"
 			lines := strings.Split(out, "\n")
 			titles := 0
 			rails := 0
@@ -92,7 +92,7 @@ func TestAlertAcceptedVariants(t *testing.T) {
 
 func styledTitlePresent(out string) bool {
 	for _, k := range alertKinds {
-		title := railSeq(k.sgr) + "\x1b[" + k.sgr + ";1m" + k.icon + "  " + k.title + "\x1b[m"
+		title := railSeq(k.sgr) + "\x1b[" + k.sgr + ";1m" + k.icon + " " + k.title + "\x1b[m"
 		if strings.Contains(out, title) {
 			return true
 		}
@@ -107,7 +107,7 @@ func TestAlertMultiBlockBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := ansi.Strip(out)
-	for _, want := range []string{"✦  Tip", "intro para", "• x", "• y"} {
+	for _, want := range []string{"\uf400 Tip", "intro para", "• x", "• y"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in %q", want, s)
 		}
@@ -274,8 +274,8 @@ func TestAlertMultipleInDoc(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		railSeq("94") + "\x1b[94;1mⓘ  Note\x1b[m",
-		railSeq("92") + "\x1b[92;1m✦  Tip\x1b[m",
+		railSeq("94") + "\x1b[94;1m\uf449 Note\x1b[m",
+		railSeq("92") + "\x1b[92;1m\uf400 Tip\x1b[m",
 	} {
 		if n := strings.Count(out, want); n != 1 {
 			t.Errorf("title %q count=%d, want 1\n%q", ansi.Strip(want), n, ansi.Strip(out))
