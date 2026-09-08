@@ -13,6 +13,7 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi/kitty"
+	"github.com/lmilojevicc/readmd/internal/config"
 	"github.com/yuin/goldmark/ast"
 	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/renderer"
@@ -184,18 +185,28 @@ func Render(source string, width int) (string, error) {
 }
 
 func renderDoc(o imgCtx, source string, width int, style string, cellWidths ...int) (string, []string, docGfx, error) {
+	return renderThemedDoc(o, source, width, style, config.Theme{}, cellWidths...)
+}
+
+func renderThemedDoc(o imgCtx, source string, width int, style string, theme config.Theme, cellWidths ...int) (string, []string, docGfx, error) {
 	if o.Width <= 0 {
 		o.Width = width
 	}
-	out, pending, g, err := renderStyled(o, source, width, style, true, cellWidths...)
-	if errors.Is(err, errAlertSplice) {
-		return renderStyled(o, source, width, style, false, cellWidths...)
+	out, pending, g, err := renderThemedStyled(o, source, width, style, true, theme, cellWidths...)
+	if errors.Is(err, errAlertSplice) && theme.Callouts == (config.Callouts{}) {
+		return renderThemedStyled(o, source, width, style, false, theme, cellWidths...)
 	}
 	return out, pending, g, err
 }
 
 func renderStyled(o imgCtx, source string, width int, style string, alertsOn bool, cellWidths ...int) (string, []string, docGfx, error) {
+	return renderThemedStyled(o, source, width, style, alertsOn, config.Theme{}, cellWidths...)
+}
+
+func renderThemedStyled(o imgCtx, source string, width int, style string, alertsOn bool, theme config.Theme, cellWidths ...int) (string, []string, docGfx, error) {
 	src := sanitize(source)
+	semanticSource := src
+	src = protectFootnoteMarkers(src)
 	src = expandMermaid(src)
 	src = substituteMath(src)
 	var figs []figure
@@ -204,11 +215,11 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 		src, figs, pending = insertFigures(src, o)
 	}
 	var alerts []alert
-	if alertsOn && style == paletteStyleName {
+	if alertsOn && (style == paletteStyleName || theme.Callouts != (config.Callouts{})) {
 		src, alerts = insertAlertSentinels(src)
 	}
 	post := func(rendered string) (string, docGfx, error) {
-		rendered, ok := spliceAlerts(rendered, alerts)
+		rendered, ok := spliceThemedAlerts(rendered, alerts, style, theme.Callouts)
 		if !ok {
 			return "", docGfx{}, errAlertSplice
 		}
@@ -226,17 +237,22 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 	for _, a := range alerts {
 		intrinsic[a.startTok], intrinsic[a.endTok] = true, true
 	}
-	out, err := renderGlamour(src, width, style, intrinsic, cellWidths...)
+	out, err := renderGlamour(src, width, style, intrinsic, theme, cellWidths...)
 	if err != nil {
 		return "", nil, docGfx{}, err
 	}
 	out, g, err := post(out)
+	if err == nil {
+		out = styleFootnoteMarkers(semanticSource, out, style, theme)
+	}
 	return trimTrailing(out), pending, g, err
 }
 
 // Each render owns its AST and renderers. References resolve before nodes move
 // into temporary roots; complete containers retain their parsing context.
-func renderGlamour(src string, width int, style string, intrinsic map[string]bool, cellWidths ...int) (string, error) {
+func renderGlamour(src string, width int, style string, intrinsic map[string]bool, theme config.Theme, cellWidths ...int) (string, error) {
+	chromaRenderMu.Lock()
+	defer chromaRenderMu.Unlock()
 	options := glamansi.Options{TableWrap: boolPtr(false), PreserveNewLines: true}
 	if style == paletteStyleName {
 		registerPaletteChroma()
@@ -251,6 +267,13 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 			return "", fmt.Errorf("%s: style not found", style)
 		}
 		options.Styles = *config
+	}
+	if err := configureChroma(&options, style, theme); err != nil {
+		return "", err
+	}
+	composer, err := newThemeComposer(theme, &options, style == styles.NoTTYStyle || style == "")
+	if err != nil {
+		return "", err
 	}
 	source := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(source))
@@ -274,6 +297,12 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 		}
 		return ast.WalkContinue, nil
 	})
+	if composer.active {
+		composer.annotate(doc, &source)
+		if err := composer.prepareLinks(doc, &source, options); err != nil {
+			return "", err
+		}
+	}
 	var out bytes.Buffer
 	first := true
 	tableID := 0
@@ -296,7 +325,7 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 			fragment.Styles.Document.BlockSuffix = ""
 		}
 		if table, ok := node.(*extast.Table); ok {
-			rendered, err := renderTable(table, source, fragment, tableID, cellWidths...)
+			rendered, err := renderThemedTable(table, source, fragment, tableID, composer, theme.Table.Border, cellWidths...)
 			if err != nil {
 				return "", err
 			}
@@ -317,7 +346,7 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 		first = false
 		node = next
 	}
-	return out.String(), nil
+	return composer.compose(out.String())
 }
 
 func sanitize(src string) string {

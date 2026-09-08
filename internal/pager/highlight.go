@@ -60,9 +60,9 @@ func (m *Model) applySearchView() {
 }
 
 // highlightLine inserts highlight SGRs for each span into a styled line. At a
-// match end the style active before the match is replayed so glamour styling
-// continues correctly; sequences surfacing inside a match are hidden so the
-// highlight paints uniformly.
+// match end the underlying style active there is replayed. SGR transitions
+// inside a match are tracked but hidden so the highlight paints uniformly;
+// OSC 8 controls pass through unchanged.
 func highlightLine(line string, sps []span, cur int) string {
 	return highlightLineStyle(line, sps, cur, matchHL, curHL)
 }
@@ -71,9 +71,8 @@ func highlightLineStyle(line string, sps []span, cur int, normal, current string
 	var b strings.Builder
 	var active []string
 	st := byte(0)
-	col, si, snap, in := 0, 0, "", false
+	col, si, in := 0, 0, false
 	open := func() {
-		snap = strings.Join(active, "")
 		if si == cur {
 			b.WriteString(current)
 		} else {
@@ -82,10 +81,9 @@ func highlightLineStyle(line string, sps []span, cur int, normal, current string
 		in = true
 	}
 	closeSpan := func() {
-		// Explicit reset before replaying the snapshot: without it the match
-		// background bleeds into following cells until the next SGR or EOL.
+		// Reset highlight colors before replaying the underlying end state.
 		b.WriteString("\x1b[m")
-		b.WriteString(snap)
+		b.WriteString(strings.Join(active, ""))
 		in, si = false, si+1
 	}
 	for rest := line; rest != ""; {
@@ -105,6 +103,7 @@ func highlightLineStyle(line string, sps []span, cur int, normal, current string
 		case atStart:
 			open()
 		case in && sgr:
+			active = pushSGR(active, seq)
 			continue
 		}
 		if sgr {
@@ -166,13 +165,24 @@ func isSGR(seq string) bool {
 func pushSGR(active []string, seq string) []string {
 	body := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(seq, "\x1b["), "\x9b"), "m")
 	reset, set := false, false
-	for _, part := range strings.Split(body, ";") {
-		v, _, _ := strings.Cut(part, ":")
-		if n, err := strconv.Atoi(v); err != nil || n == 0 {
+	parts := strings.Split(body, ";")
+	for i := 0; i < len(parts); i++ {
+		v, _, colon := strings.Cut(parts[i], ":")
+		n, err := strconv.Atoi(v)
+		if err != nil || n == 0 {
 			reset = true
 			continue
 		}
 		set = true
+		// Zero-valued RGB/index payloads are colors, not SGR resets.
+		if !colon && (n == 38 || n == 48 || n == 58) && i+1 < len(parts) {
+			switch parts[i+1] {
+			case "2":
+				i += 4
+			case "5":
+				i += 2
+			}
+		}
 	}
 	switch {
 	case set:

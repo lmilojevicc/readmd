@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"go.yaml.in/yaml/v3"
@@ -20,8 +21,9 @@ const MaxWidth = 10000
 const Example = `# readmd startup settings (runtime m/r changes are not saved).
 # Path: $XDG_CONFIG_HOME/readmd/config.yaml, otherwise
 # $HOME/.config/readmd/config.yaml (including macOS).
-# Defaults < this file < explicit --style/--no-images/--no-remote-images.
+# Defaults < this file < explicit CLI flags; theme overrides the selected style.
 style: auto # auto follows the terminal palette; dark, light, notty are fixed styles
+# theme: theme.yaml # optional; relative to this directory; --theme PATH wins
 mouse: true # m toggles capture for this session only
 picker: list # p opens list (focus/details panel) or vimium (inline badges/fallback)
 reader: false # r toggles the centered viewport for this session only
@@ -33,6 +35,7 @@ remote_images: true # existing remote-image security/resource limits still apply
 
 type Config struct {
 	Style          string `yaml:"style"`
+	Theme          string `yaml:"theme"`
 	Mouse          bool   `yaml:"mouse"`
 	Picker         string `yaml:"picker"`
 	Reader         bool   `yaml:"reader"`
@@ -90,7 +93,7 @@ func Parse(data []byte) (Config, error) {
 		return c, errors.New("YAML: expected a mapping of settings")
 	}
 	mapping := doc.Content[0]
-	types := map[string]string{"style": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "reader_width": "!!int", "table_cell_width": "!!int", "images": "!!bool", "remote_images": "!!bool"}
+	types := map[string]string{"style": "!!str", "theme": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "reader_width": "!!int", "table_cell_width": "!!int", "images": "!!bool", "remote_images": "!!bool"}
 	seen := map[string]bool{}
 	for i := 0; i < len(mapping.Content); i += 2 {
 		key, value := mapping.Content[i], mapping.Content[i+1]
@@ -102,6 +105,9 @@ func Parse(data []byte) (Config, error) {
 			return c, fmt.Errorf("line %d: duplicate setting %q", key.Line, key.Value)
 		}
 		seen[key.Value] = true
+		if key.Value == "theme" && strings.TrimSpace(value.Value) == "" {
+			return c, fmt.Errorf("line %d: theme path must not be empty", value.Line)
+		}
 		if value.Kind != yaml.ScalarNode || value.Tag != tag {
 			return c, fmt.Errorf("line %d: %s must have type %s", value.Line, key.Value, tag)
 		}

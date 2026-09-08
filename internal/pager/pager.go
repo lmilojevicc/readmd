@@ -39,6 +39,7 @@ type Model struct {
 	store                 *imageStore
 	cellWidth, cellHeight int
 
+	theme           config.Theme
 	heads           []heading
 	stripped        []string
 	base            []string
@@ -107,6 +108,9 @@ func (m *Model) Configure(c config.Config) error {
 	m.SetImages(ImageConfig{NoImages: !c.Images, NoRemote: !c.RemoteImages, DocDir: m.docDir()})
 	return nil
 }
+
+// SetTheme snapshots startup overrides; later caller mutations cannot alter renders.
+func (m *Model) SetTheme(theme config.Theme) { m.theme = theme.Clone() }
 
 func (m *Model) Init() tea.Cmd {
 	if m.path == "" {
@@ -466,8 +470,9 @@ func (m *Model) requestRender() tea.Cmd {
 		CellHeight: m.cellHeight,
 		store:      m.store,
 	}
+	theme := m.theme
 	return func() tea.Msg {
-		out, pending, g, err := renderDoc(o, src, wrapWidth, st, cellWidth)
+		out, pending, g, err := renderThemedDoc(o, src, wrapWidth, st, theme, cellWidth)
 		if err != nil {
 			return renderedMsg{err: err, gen: gen}
 		}

@@ -313,22 +313,26 @@ func TestFootnoteReloadInvalidatesHistoryAndMetadata(t *testing.T) {
 	}
 }
 
-func TestFootnoteAmbiguousRenderedMappingDeclines(t *testing.T) {
-	src := "ref[^1]\n\n[^1]: note\n"
-	out, err := Render(src, 40)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base, stripped := strings.Split(out, "\n"), splitStrip(out)
-	if targets := renderedTargets(src, base, stripped); len(targets) != 0 {
-		t.Fatalf("one-token link-definition ambiguity must decline: %#v", targets)
-	}
-	linkOut, err := Render("[guide](guide.md)\n", 40)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if targets := renderedTargets("[guide](guide.md)\n", strings.Split(linkOut, "\n"), splitStrip(linkOut)); len(targets) != 1 || targets[0].dest != "guide.md" {
-		t.Fatalf("ordinary relative links must remain visible deferred targets: %#v", targets)
+func TestFootnoteOneWordDefinitionPreserved(t *testing.T) {
+	for _, label := range []string{"1", "named"} {
+		t.Run(label, func(t *testing.T) {
+			src := "ref[^" + label + "]\n\n[^" + label + "]: note\n"
+			out, err := Render(src, 40)
+			if err != nil {
+				t.Fatal(err)
+			}
+			base, stripped := strings.Split(out, "\n"), splitStrip(out)
+			if targets := renderedTargets(src, base, stripped); len(targets) != 1 || targets[0].kind != targetFootnote || targets[0].footnote != label {
+				t.Fatalf("validated one-token definition must remain navigable: %#v", targets)
+			}
+			linkOut, err := Render("[guide](guide.md)\n", 40)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if targets := renderedTargets("[guide](guide.md)\n", strings.Split(linkOut, "\n"), splitStrip(linkOut)); len(targets) != 1 || targets[0].dest != "guide.md" {
+				t.Fatalf("ordinary relative links must remain visible deferred targets: %#v", targets)
+			}
+		})
 	}
 }
 

@@ -1,8 +1,9 @@
 # readmd startup settings (runtime m/r changes are not saved).
 # Path: $XDG_CONFIG_HOME/readmd/config.yaml, otherwise
 # $HOME/.config/readmd/config.yaml (including macOS).
-# Defaults < this file < explicit --style/--no-images/--no-remote-images.
+# Defaults < this file < explicit CLI flags; theme overrides the selected style.
 style: auto # auto follows the terminal palette; dark, light, notty are fixed styles
+# theme: theme.yaml # optional; relative to this directory; --theme PATH wins
 mouse: true # m toggles capture for this session only
 picker: list # p opens list (focus/details panel) or vimium (inline badges/fallback)
 reader: false # r toggles the centered viewport for this session only

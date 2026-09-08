@@ -44,16 +44,16 @@ func TestHighlightGolden(t *testing.T) {
 			want: "x \x1b[32mgreen " + matchHL + "tail\x1b[m\x1b[32m\x1b[0m y",
 		},
 		{
-			name: "sgr at match start folds into restore, hidden under highlight",
+			name: "reset inside match restores default on unmatched tail",
 			line: "one \x1b[31mtwo\x1b[0m three",
 			q:    "two th",
-			want: "one " + matchHL + "two th\x1b[m\x1b[31mree",
+			want: "one " + matchHL + "two th\x1b[mree",
 		},
 		{
-			name: "interior sgr suppressed, pre-match style replayed at end",
+			name: "interior reset tracked when match ends at EOL",
 			line: "one \x1b[31mtwo\x1b[0m three",
 			q:    "two three",
-			want: "one " + matchHL + "two three\x1b[m\x1b[31m",
+			want: "one " + matchHL + "two three\x1b[m",
 		},
 		{
 			name: "multiple matches one line",

@@ -1,0 +1,38 @@
+# Partial theme example, not a replacement for the built-in base.
+# Copy to theme.yaml beside config.yaml, or select with --theme PATH.
+# Omit any field to inherit. Restart readmd after editing this file.
+# ANSI integers 0..255; 0..15 follow your terminal palette. Quote hex colors.
+headings:
+  h1: {fg: 13, bold: true}
+  h2: {fg: 12, bold: true}
+  h3: {fg: 14}
+  h4: {fg: 10}
+  h5: {fg: 11}
+  h6: {fg: 9}
+strong: {bold: true}
+emphasis: {italic: true}
+strikethrough: {strikethrough: true}
+links: {fg: 14, underline: true}
+inline_code: {fg: 7, bg: none} # fg: default explicitly restores terminal default
+code_block: {bg: none} # try '#202030' for an intrinsic rectangle; syntax colors stay
+# Only top-level table borders; nested tables retain stock rendering.
+table:
+  border: {fg: 8}
+# Glyph styling only, never task body text. Up to 8 display columns per checkbox.
+tasks:
+  checked: {glyph: '[✓]', fg: 10}
+  unchecked: {glyph: '[ ]', fg: 8}
+footnotes:
+  reference: {fg: 6, underline: true}
+  definition: {fg: 14, bold: true, underline: false}
+callouts:
+  preset: unicode # nerd requires Nerd Fonts 3.x Mono or a suitable fallback
+  rail: {glyph: '│'}
+  title: {bold: true}
+  # note: {icon: 'i', rail: {fg: 12}, title: {bold: false}}
+
+# Nerd recipe: replace the callouts mapping above with this mapping (no duplicates).
+# callouts:
+#   preset: nerd
+#   rail: {glyph: '▋'}
+#   title: {bold: false}

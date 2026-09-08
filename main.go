@@ -20,11 +20,12 @@ func main() {
 	}
 }
 
-const usage = "usage: readmd [--style auto|dark|light|notty] [--no-images] [--no-remote-images] [file]"
+const usage = "usage: readmd [--style auto|dark|light|notty] [--theme PATH] [--no-images] [--no-remote-images] [file]"
 
 type cliOpts struct {
 	imgs  pager.ImageConfig
 	style string
+	theme string
 	pos   []string
 }
 
@@ -37,6 +38,12 @@ func parseArgs(args []string) (cliOpts, error) {
 			opts.imgs.NoImages = true
 		case "--no-remote-images":
 			opts.imgs.NoRemote = true
+		case "--theme":
+			i++
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" || strings.HasPrefix(args[i], "--") {
+				return opts, errors.New("--theme requires a path (" + usage + ")")
+			}
+			opts.theme = args[i]
 		case "--style":
 			i++
 			if i >= len(args) {
@@ -47,6 +54,13 @@ func parseArgs(args []string) (cliOpts, error) {
 				return opts, err
 			}
 		default:
+			if strings.HasPrefix(a, "--theme=") {
+				opts.theme = strings.TrimPrefix(a, "--theme=")
+				if strings.TrimSpace(opts.theme) == "" {
+					return opts, errors.New("--theme requires a path (" + usage + ")")
+				}
+				continue
+			}
 			if strings.HasPrefix(a, "--style=") {
 				opts.style = strings.TrimPrefix(a, "--style=")
 				if err := validateCLIStyle(opts.style); err != nil {
@@ -148,10 +162,15 @@ func startupModel(source, name string, opts cliOpts, warnings io.Writer) (*pager
 		return nil, err
 	}
 	c = applyCLI(c, opts)
+	theme, err := config.LoadTheme(c.Theme, opts.theme)
+	if err != nil {
+		return nil, err
+	}
 	model := pager.New(source, name)
 	if name != "" && name != "(stdin)" {
 		model.SetPath(name)
 	}
+	model.SetTheme(theme)
 	if err := model.Configure(c); err != nil {
 		return nil, err
 	}

@@ -111,7 +111,7 @@ func TestStartupValidatesFileBeforeOverrides(t *testing.T) {
 }
 
 func TestInvalidCLIHasNoConfigSideEffects(t *testing.T) {
-	for _, args := range [][]string{{"--unknown"}, {"--style"}, {"--style=invalid"}, {"--style="}, {"one", "two"}, {"--no-images=true"}} {
+	for _, args := range [][]string{{"--unknown"}, {"--style"}, {"--style=invalid"}, {"--style="}, {"one", "two"}, {"--no-images=true"}, {"--theme"}, {"--theme="}, {"--theme", "--style", "auto"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			home, xdg := t.TempDir(), t.TempDir()
 			t.Setenv("HOME", home)
@@ -127,6 +127,66 @@ func TestInvalidCLIHasNoConfigSideEffects(t *testing.T) {
 				if err != nil || len(entries) != 0 {
 					t.Fatalf("invalid CLI touched %s: %v %v", root, entries, err)
 				}
+			}
+		})
+	}
+}
+
+func TestThemeStartupPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name, config, cliTheme, cliStyle string
+		want, errorPath                  string
+	}{
+		{name: "discover", config: "style: auto", want: "\x1b[31;1mMARK"},
+		{name: "config path", config: "style: auto\ntheme: custom.yaml", want: "\x1b[32;1mMARK"},
+		{name: "CLI wins", config: "style: auto\ntheme: missing.yaml", cliTheme: "cli.yaml", want: "\x1b[33;1mMARK"},
+		{name: "style retains theme", config: "style: light\ntheme: custom.yaml", cliStyle: "auto", want: "\x1b[32;1mMARK"},
+		{name: "invalid selected", config: "style: auto\ntheme: broken.yaml", errorPath: "broken.yaml"},
+		{name: "invalid config cannot hide", config: "style: broken\ntheme: custom.yaml", cliStyle: "auto", cliTheme: "cli.yaml", errorPath: "config.yaml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, err := config.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Dir(path)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for name, data := range map[string]string{"config.yaml": tc.config, "theme.yaml": "strong: {fg: 1}", "custom.yaml": "strong: {fg: 2}", "broken.yaml": "unknown: true"} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cwd := t.TempDir()
+			t.Chdir(cwd)
+			if err := os.WriteFile("cli.yaml", []byte("strong: {fg: 3}"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			model, err := startupModel("**MARK**\n", "(stdin)", cliOpts{theme: tc.cliTheme, style: tc.cliStyle}, &bytes.Buffer{})
+			if tc.errorPath != "" {
+				if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, tc.errorPath)) {
+					t.Fatalf("error=%v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer model.Close()
+			_, cmd := model.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
+			if cmd == nil {
+				t.Fatal("no render")
+			}
+			model.Update(cmd())
+			if !strings.Contains(model.View().Content, tc.want) {
+				t.Fatalf("theme precedence: %q", model.View().Content)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != tc.config {
+				t.Fatal("config rewritten")
 			}
 		})
 	}

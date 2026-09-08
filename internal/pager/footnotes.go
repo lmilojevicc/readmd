@@ -4,7 +4,9 @@ import (
 	"sort"
 	"strings"
 
+	glamstyles "charm.land/glamour/v2/styles"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lmilojevicc/readmd/internal/config"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/yuin/goldmark"
@@ -114,7 +116,36 @@ func suppressFootnoteReferenceLinks(links []linkTarget, labels map[string]bool) 
 	return out
 }
 
+type footnoteOccurrence struct {
+	marker  sourceFootnoteMarker
+	regions []targetRegion
+}
+
 func parseFootnoteTargets(src string, rendered []string) []linkTarget {
+	occurrences := mappedFootnoteMarkers(src, rendered)
+	definitions := map[string]targetRegion{}
+	for _, o := range occurrences {
+		if o.marker.definition {
+			definitions[o.marker.label] = o.regions[0]
+		}
+	}
+	var targets []linkTarget
+	for _, o := range occurrences {
+		if o.marker.reference {
+			targets = append(targets, linkTarget{kind: targetFootnote, id: "footnote:" + o.marker.label, footnote: o.marker.label, regions: o.regions, definition: definitions[o.marker.label]})
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		a, b := targets[i].regions[0], targets[j].regions[0]
+		if a.line != b.line {
+			return a.line < b.line
+		}
+		return a.start < b.start
+	})
+	return targets
+}
+
+func mappedFootnoteMarkers(src string, rendered []string) []footnoteOccurrence {
 	markers, ok := sourceFootnoteMarkers(src)
 	if !ok || len(markers) == 0 {
 		return nil
@@ -129,7 +160,7 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 		byLabel[marker.label] = append(byLabel[marker.label], i)
 	}
 
-	var targets []linkTarget
+	var occurrences []footnoteOccurrence
 	for label, indexes := range byLabel {
 		definition := -1
 		for _, i := range indexes {
@@ -167,28 +198,13 @@ func parseFootnoteTargets(src string, rendered []string) []linkTarget {
 		if len(regionBySource) != len(indexes) {
 			continue
 		}
-		defRegion := regionBySource[definition][0]
 		for _, i := range indexes {
-			if !markers[i].reference {
-				continue
+			if markers[i].reference || markers[i].definition {
+				occurrences = append(occurrences, footnoteOccurrence{markers[i], regionBySource[i]})
 			}
-			targets = append(targets, linkTarget{
-				kind:       targetFootnote,
-				id:         "footnote:" + label,
-				footnote:   label,
-				regions:    regionBySource[i],
-				definition: defRegion,
-			})
 		}
 	}
-	sort.SliceStable(targets, func(i, j int) bool {
-		a, b := targets[i].regions[0], targets[j].regions[0]
-		if a.line != b.line {
-			return a.line < b.line
-		}
-		return a.start < b.start
-	})
-	return targets
+	return occurrences
 }
 
 func sourceFootnoteMarkers(src string) ([]sourceFootnoteMarker, bool) {
@@ -382,4 +398,97 @@ func renderedFootnoteMarkers(lines []string, label string) [][]targetRegion {
 		}
 	}
 	return out
+}
+
+// Only semantically validated occurrences are escaped in render-only Markdown.
+// Otherwise a one-word definition can be consumed as a reference-link URL.
+func protectFootnoteMarkers(src string) string {
+	markers, ok := sourceFootnoteMarkers(src)
+	if !ok {
+		return src
+	}
+	var edits []edit
+	for _, m := range markers {
+		if m.reference || m.definition {
+			edits = append(edits, edit{m.start, m.start, "\\"})
+		}
+	}
+	return applyEdits(src, edits)
+}
+
+func styleFootnoteMarkers(src, out, base string, theme config.Theme) string {
+	lines := strings.Split(out, "\n")
+	occurrences := mappedFootnoteMarkers(src, lines)
+	st := paletteConfig
+	if base != paletteStyleName {
+		if value, ok := glamstyles.DefaultStyles[base]; ok {
+			st = *value
+		} else {
+			st = glamstyles.NoTTYStyleConfig
+		}
+	}
+	reference := mergeText(primitiveStyle(st.Link), config.TextStyle{Underline: boolPtr(true)})
+	definition := mergeText(primitiveStyle(st.LinkText), config.TextStyle{Bold: boolPtr(true), Underline: boolPtr(false)})
+	reference = mergeText(reference, theme.Footnotes.Reference)
+	definition = mergeText(definition, theme.Footnotes.Definition)
+	// Apply rightmost regions first so each region's coordinates stay immutable.
+	var regions []struct {
+		targetRegion
+		style config.TextStyle
+	}
+	for _, o := range occurrences {
+		style := reference
+		if o.marker.definition {
+			style = definition
+		}
+		for _, r := range o.regions {
+			regions = append(regions, struct {
+				targetRegion
+				style config.TextStyle
+			}{r, style})
+		}
+	}
+	sort.Slice(regions, func(i, j int) bool {
+		a, b := regions[i], regions[j]
+		if a.line != b.line {
+			return a.line < b.line
+		}
+		return a.start > b.start
+	})
+	for _, r := range regions {
+		lines[r.line] = styleRegion(lines[r.line], r.start, r.end, textSGR(r.style, base == "notty" || base == ""))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Unlike search highlighting, role overrides compose with the underlying
+// attributes and replay every stock SGR within the validated region.
+func styleRegion(line string, start, end int, overlay string) string {
+	var out strings.Builder
+	var active []string
+	col, state, inside := 0, byte(0), false
+	for rest := line; rest != ""; {
+		seq, w, n, next := ansi.DecodeSequence(rest, state, nil)
+		rest, state = rest[n:], next
+		if inside && col >= end {
+			out.WriteString("\x1b[m" + strings.Join(active, ""))
+			inside = false
+		}
+		if !inside && col >= start && col < end && w > 0 {
+			out.WriteString(overlay)
+			inside = true
+		}
+		out.WriteString(seq)
+		if isSGR(seq) {
+			active = pushSGR(active, seq)
+			if inside {
+				out.WriteString(overlay)
+			}
+		}
+		col += w
+	}
+	if inside {
+		out.WriteString("\x1b[m" + strings.Join(active, ""))
+	}
+	return out.String()
 }

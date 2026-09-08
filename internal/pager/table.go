@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lmilojevicc/readmd/internal/config"
 	extast "github.com/yuin/goldmark/extension/ast"
 )
 
@@ -18,6 +19,10 @@ const tableLinkPrefix = "readmd-table-"
 
 // Only top-level tables use this adapter. Containers remain whole stock blocks.
 func renderTable(node *extast.Table, source []byte, options glamansi.Options, id int, cellWidths ...int) (string, error) {
+	return renderThemedTable(node, source, options, id, nil, config.TextStyle{}, cellWidths...)
+}
+
+func renderThemedTable(node *extast.Table, source []byte, options glamansi.Options, id int, composer *themeComposer, borderStyle config.TextStyle, cellWidths ...int) (string, error) {
 	cellWidth := tableCellWidth
 	if len(cellWidths) > 0 {
 		cellWidth = cellWidths[0]
@@ -39,6 +44,7 @@ func renderTable(node *extast.Table, source []byte, options glamansi.Options, id
 			var b bytes.Buffer
 			for child := cell.FirstChild(); child != nil; child = child.NextSibling() {
 				e := tableInline(r.NewElement(child, source).Renderer, id, &serial, options.Styles.ImageText)
+				e = composer.inline(e)
 				if styled, ok := e.(glamansi.StyleOverriderElementRenderer); ok {
 					if err := styled.StyleOverrideRender(&b, ctx, options.Styles.Table.StylePrimitive); err != nil {
 						return "", err
@@ -49,7 +55,15 @@ func renderTable(node *extast.Table, source []byte, options glamansi.Options, id
 					}
 				}
 			}
-			cells[col] = expandTableTabs(b.String())
+			cellText := b.String()
+			if composer != nil {
+				var err error
+				cellText, err = composer.compose(cellText)
+				if err != nil {
+					return "", err
+				}
+			}
+			cells[col] = expandTableTabs(cellText)
 			// Empty destinations are inert resets, placed outside complete cells.
 			// ANSI cuts replay these bounds on every wrapped continuation.
 			if bytes.Contains(cell.Lines().Value(source), []byte("[^")) {
@@ -80,6 +94,9 @@ func renderTable(node *extast.Table, source []byte, options glamansi.Options, id
 	rules := options.Styles.Table
 	if rules.RowSeparator != nil && *rules.RowSeparator == "-" && rules.ColumnSeparator != nil && *rules.ColumnSeparator == "|" {
 		border = lipgloss.ASCIIBorder()
+	}
+	if sgr := textSGR(borderStyle, composer != nil && composer.notty); sgr != "" {
+		border = styleTableBorder(border, sgr)
 	}
 	t := table.New().Headers(rows[0]...).Rows(rows[1:]...).Wrap(true).
 		Border(border).BorderRow(multiline).
@@ -227,4 +244,13 @@ func (e tableLinkElement) Render(w io.Writer, ctx glamansi.RenderContext) error 
 		}
 	}
 	return nil
+}
+
+func styleTableBorder(b lipgloss.Border, sgr string) lipgloss.Border {
+	for _, field := range []*string{&b.Top, &b.Bottom, &b.Left, &b.Right, &b.TopLeft, &b.TopRight, &b.BottomLeft, &b.BottomRight, &b.MiddleLeft, &b.MiddleRight, &b.Middle, &b.MiddleTop, &b.MiddleBottom} {
+		if *field != "" {
+			*field = sgr + *field + "\x1b[m"
+		}
+	}
+	return b
 }

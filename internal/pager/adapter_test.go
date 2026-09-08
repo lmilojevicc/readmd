@@ -8,18 +8,28 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2"
+	glamansi "charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lmilojevicc/readmd/internal/config"
 )
 
 func stockNatural(t *testing.T, src, style string, extra ...glamour.TermRendererOption) string {
 	t.Helper()
+	chromaRenderMu.Lock()
+	defer chromaRenderMu.Unlock()
 	opts := []glamour.TermRendererOption{glamour.WithWordWrap(0), glamour.WithTableWrap(false)}
 	if style == paletteStyleName {
 		registerPaletteChroma()
 		opts = append(opts, glamour.WithStyles(paletteConfig), glamour.WithChromaFormatter("terminal16"))
 	} else {
-		opts = append(opts, glamour.WithStandardStyle(style))
+		// Stock custom Chroma uses the process-global first-wins "charm" name.
+		// Isolate base styles without changing the stock layout oracle.
+		options := glamansi.Options{Styles: *styles.DefaultStyles[style]}
+		if err := configureChroma(&options, style, config.Theme{}); err != nil {
+			t.Fatal(err)
+		}
+		opts = append(opts, glamour.WithStyles(options.Styles))
 	}
 	opts = append(opts, extra...)
 	r, err := glamour.NewTermRenderer(opts...)

@@ -52,6 +52,9 @@ cat notes.md | readmd
 See [Usage](docs/usage.md) for controls and terminal support, or
 [Configuration](docs/configuration.md) to set your startup preferences.
 
+Custom colors, glyphs and callout presets use a separate partial
+[theme file](docs/configuration.md#custom-themes); start from [theme.example.yaml](theme.example.yaml).
+
 ## Contribute
 
 Bug reports and focused improvements are welcome. Read

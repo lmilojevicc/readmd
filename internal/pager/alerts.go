@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lmilojevicc/readmd/internal/config"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 )
@@ -173,6 +174,10 @@ func quoteExtent(bq *ast.Blockquote, src string) (int, int, bool) {
 // and every rail glyph takes the type color. Any sentinel anomaly bails so the
 // caller can re-render plainly.
 func spliceAlerts(out string, alerts []alert) (string, bool) {
+	return spliceThemedAlerts(out, alerts, paletteStyleName, config.Callouts{})
+}
+
+func spliceThemedAlerts(out string, alerts []alert, base string, theme config.Callouts) (string, bool) {
 	if len(alerts) == 0 {
 		return out, true
 	}
@@ -225,6 +230,9 @@ func spliceAlerts(out string, alerts []alert) (string, bool) {
 	for i, sp := range spans {
 		outLines = append(outLines, lines[done:sp.from]...)
 		region, ok := styleAlert(lines[sp.from+1:sp.to], alerts[i])
+		if theme != (config.Callouts{}) {
+			region, ok = styleCustomAlert(lines[sp.from+1:sp.to], alerts[i], base, theme)
+		}
 		if !ok {
 			return out, false
 		}
@@ -265,4 +273,58 @@ func trimEdgeRows(rows []string) []string {
 		rows = rows[:len(rows)-1]
 	}
 	return rows
+}
+
+func styleCustomAlert(rows []string, a alert, base string, theme config.Callouts) ([]string, bool) {
+	specific := map[string]config.Callout{"note": theme.Note, "tip": theme.Tip, "important": theme.Important, "warning": theme.Warning, "caution": theme.Caution}[a.name]
+	rail := "│"
+	if theme.Preset != nil && *theme.Preset == "nerd" {
+		a.icon = map[string]string{"note": "\U000f02fd", "tip": "\U000f0336", "important": "\U000f017e", "warning": "\U000f002a", "caution": "\U000f0ce6"}[a.name]
+		rail = "▋"
+	}
+	if theme.Rail.Glyph != nil {
+		rail = *theme.Rail.Glyph
+	}
+	if specific.Rail.Glyph != nil {
+		rail = *specific.Rail.Glyph
+	}
+	if specific.Icon != nil {
+		a.icon = *specific.Icon
+	}
+	color := config.Color(map[string]string{"note": "12", "tip": "10", "important": "13", "warning": "11", "caution": "9"}[a.name])
+	railStyle := mergeText(mergeText(config.TextStyle{FG: &color}, theme.Rail.TextStyle), specific.Rail.TextStyle)
+	titleStyle := mergeText(mergeText(config.TextStyle{FG: &color, Bold: boolPtr(true)}, theme.Title), specific.Title)
+	notty := base == "notty" || base == ""
+	rail = textSGR(railStyle, notty) + rail + "\x1b[m"
+	title := textSGR(titleStyle, notty) + a.icon + " " + a.title + "\x1b[m"
+	rows = trimEdgeRows(rows)
+	var result []string
+	done, afterTitle := false, false
+	for _, line := range rows {
+		plain := ansi.Strip(line)
+		trimmed := strings.TrimLeft(plain, " ")
+		if !strings.HasPrefix(trimmed, "│") && !strings.HasPrefix(trimmed, "|") {
+			return nil, false
+		}
+		col := len(plain) - len(trimmed)
+		railBytes := len("│")
+		if strings.HasPrefix(trimmed, "|") {
+			railBytes = 1
+		}
+		content := strings.TrimSpace(trimmed[railBytes:])
+		prefix := ansi.Cut(line, 0, col) + rail + " "
+		if !done && strings.EqualFold(content, "[!"+a.name+"]") {
+			result = append(result, prefix+title)
+			done, afterTitle = true, true
+			continue
+		}
+		if afterTitle {
+			afterTitle = false
+			if content == "" {
+				continue
+			}
+		}
+		result = append(result, prefix+ansi.Cut(line, col+2, ansi.StringWidth(line)))
+	}
+	return result, done
 }
