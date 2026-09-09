@@ -12,17 +12,21 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	all := Config{Style: "notty", Mouse: false, Picker: "vimium", Reader: true, ReaderWidth: 72, TableCellWidth: 24, Images: false, RemoteImages: false}
+	all := Config{Style: "notty", Mouse: false, Picker: "vimium", Reader: true, FooterPath: "full", ReaderWidth: 72, TableCellWidth: 24, Images: false, RemoteImages: false}
 	partial := Defaults()
 	partial.Mouse = false
 	partial.Picker = "vimium"
+	full := Defaults()
+	full.FooterPath = "full"
 	for _, tc := range []struct {
 		name, body string
 		want       Config
 	}{
 		{"empty", "", Defaults()}, {"comments", "# comment\n", Defaults()}, {"mapping", "{}", Defaults()},
 		{"example", Example, Defaults()}, {"partial", "mouse: false\npicker: vimium\n", partial},
-		{"all keys", "style: notty\nmouse: false\npicker: vimium\nreader: true\nreader_width: 72\ntable_cell_width: 24\nimages: false\nremote_images: false\n", all},
+		{"footer filename", "footer_path: filename\n", Defaults()},
+		{"footer full", "footer_path: full\n", full},
+		{"all keys", "style: notty\nmouse: false\npicker: vimium\nreader: true\nfooter_path: full\nreader_width: 72\ntable_cell_width: 24\nimages: false\nremote_images: false\n", all},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Parse([]byte(tc.body))
@@ -41,8 +45,15 @@ func TestParseInvalid(t *testing.T) {
 		{"mouse: [", "YAML"}, {"{}\n---\n{}", "single"}, {"{}\n---", "single"},
 		{"mouse: &a true\nreader: *a", "reader"}, {"<<: {mouse: true}", "<<"},
 		{"reader_width: 99999999999999999999999999", "reader_width"},
+		{"footer_path: ''", "footer_path"}, {"footer_path:", "footer_path"},
+		{"footer_path: basename", "footer_path"}, {"footer_path: FILENAME", "footer_path"},
+		{"footer_path: FULL", "footer_path"}, {"footer_path: ' full '", "footer_path"},
+		{"footer_path: true", "footer_path"}, {"footer_path: 1", "footer_path"},
+		{"footer_path: 1.5", "footer_path"}, {"footer_path: full\nfooter_path: filename", "duplicate"},
+		{"footer_path: full\nfooter_path: full", "duplicate"},
+		{"style: &a auto\nfooter_path: *a", "footer_path"},
 	}
-	for _, key := range []string{"style", "picker", "mouse", "reader", "reader_width", "table_cell_width", "images", "remote_images"} {
+	for _, key := range []string{"style", "picker", "mouse", "reader", "footer_path", "reader_width", "table_cell_width", "images", "remote_images"} {
 		for _, value := range []string{"null", "[]", "{}"} {
 			cases = append(cases, struct{ body, part string }{key + ": " + value, key})
 		}

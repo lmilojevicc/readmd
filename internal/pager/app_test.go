@@ -20,6 +20,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lmilojevicc/readmd/internal/config"
+	"github.com/rivo/uniseg"
 )
 
 func testApplication(t *testing.T, name string) *Application {
@@ -678,5 +679,200 @@ func TestApplicationRootAlias(t *testing.T) {
 				t.Fatal("alias return lost selection")
 			}
 		})
+	}
+}
+
+func TestApplicationFooterPathDefault(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"/docs/nested/guide.md", "guide.md"},
+		{"relative/guide.md", "guide.md"},
+		{"(stdin)", "(stdin)"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			a := testApplication(t, tc.path)
+			if a.current.title != tc.want {
+				t.Fatalf("title=%q want=%q", a.current.title, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplicationFooterPathOpens(t *testing.T) {
+	for _, mode := range []string{"filename", "full"} {
+		for _, origin := range []string{"file", "browser"} {
+			t.Run(mode+"/"+origin, func(t *testing.T) {
+				root := t.TempDir()
+				first, next := filepath.Join(root, "first.md"), filepath.Join(root, "next.md")
+				for _, path := range []string{first, next} {
+					if err := os.WriteFile(path, []byte("# Document\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				c := config.Defaults()
+				c.Images, c.FooterPath = false, mode
+				name := first
+				if origin == "browser" {
+					name = ""
+				}
+				a, err := NewApplication("# Document\n", name, root, c, config.Theme{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(a.Close)
+				// Later opens must keep the startup snapshot, not caller mutations.
+				c.FooterPath = "full"
+				if mode == "full" {
+					c.FooterPath = "filename"
+				}
+				check := func(path string) {
+					t.Helper()
+					m := a.current
+					want := path
+					if mode == "filename" {
+						want = filepath.Base(path)
+					}
+					if m.title != want || m.path != path || m.docDir() != root || m.imgCfg.DocDir != root {
+						t.Fatalf("title=%q path=%q image dir=%q; want title=%q raw path=%q root=%q", m.title, m.path, m.imgCfg.DocDir, want, path, root)
+					}
+					m.rendering = false
+					_, cmd := a.Update(tea.WindowSizeMsg{Width: 1000, Height: 20})
+					appFiniteCommands(t, a, cmd)
+					view := a.View().Content
+					bar := view[strings.LastIndexByte(view, '\n')+1:]
+					if !strings.Contains(ansi.Strip(bar), " "+want+" ") {
+						t.Fatalf("footer lacks label %q: %q", want, bar)
+					}
+				}
+				if origin == "file" {
+					check(first)
+					appFiniteCommands(t, a, appKey(a, "ctrl+f"))
+				} else {
+					appFiniteCommands(t, a, a.Init())
+				}
+				if a.browser.root != root {
+					t.Fatalf("browser root=%q want=%q", a.browser.root, root)
+				}
+				a.browser.list.Select(1)
+				open := appKey(a, "enter")
+				if open == nil {
+					t.Fatal("browser did not open selected file")
+				}
+				a.Update(open())
+				if a.browsing || !a.fromBrowser {
+					t.Fatal("browser open did not enter reader")
+				}
+				check(next)
+			})
+		}
+	}
+}
+
+func TestApplicationFooterPathLabels(t *testing.T) {
+	for _, mode := range []string{"filename", "full"} {
+		for _, tc := range []struct{ name, path, full, filename string }{
+			{"stdin", "(stdin)", "(stdin)", "(stdin)"},
+			{"relative", "relative/../docs/guide.md", "relative/../docs/guide.md", "guide.md"},
+			{"controls", "/dir\n\x1b[2J/base\t\r\x07.md", `/dir\u000a\u001b[2J/base\u0009\u000d\u0007.md`, `base\u0009\u000d\u0007.md`},
+			{"bidi", "/dir\u202e/base\u2066.md", `/dir\u202e/base\u2066.md`, `base\u2066.md`},
+			{"invalid UTF8", "/dir\xff/base\xfe.md", `/dir\xff/base\xfe.md`, `base\xfe.md`},
+			{"CJK", "/目录/文档.md", "/目录/文档.md", "文档.md"},
+			{"combining", "/cafe\u0301/re\u0301sume\u0301.md", "/cafe\u0301/re\u0301sume\u0301.md", "re\u0301sume\u0301.md"},
+			{"emoji", "/👩‍💻/👨‍👩‍👧‍👦🇷🇸.md", "/👩‍💻/👨‍👩‍👧‍👦🇷🇸.md", "👨‍👩‍👧‍👦🇷🇸.md"},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				c := config.Defaults()
+				c.Images, c.FooterPath = false, mode
+				a, err := NewApplication("# Body", tc.path, t.TempDir(), c, config.Theme{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(a.Close)
+				want := tc.filename
+				if mode == "full" {
+					want = tc.full
+				}
+				m := a.current
+				path, dir := tc.path, filepath.Dir(tc.path)
+				if tc.name == "stdin" {
+					path, dir = "", ""
+				}
+				if m.title != want || m.path != path || m.imgCfg.DocDir != dir {
+					t.Fatalf("title=%q path=%q image dir=%q; want %q %q %q", m.title, m.path, m.imgCfg.DocDir, want, path, dir)
+				}
+				_, cmd := a.Update(tea.WindowSizeMsg{Width: 1000, Height: 10})
+				appFiniteCommands(t, a, cmd)
+				view := a.View().Content
+				bar := view[strings.LastIndexByte(view, '\n')+1:]
+				if !strings.Contains(ansi.Strip(bar), " "+want+" ") || !utf8.ValidString(view) || len(strings.Split(view, "\n")) != 10 {
+					t.Fatalf("unsafe or missing footer label: %q", view)
+				}
+				// New's explicit-title contract is independent of Application labels.
+				direct := New("# Body", tc.path)
+				t.Cleanup(direct.Close)
+				if err := direct.Configure(c); err != nil || direct.title != tc.path {
+					t.Fatalf("explicit title changed: %q (%v)", direct.title, err)
+				}
+			})
+		}
+	}
+}
+
+func TestApplicationFooterPathLayout(t *testing.T) {
+	for _, mode := range []string{"filename", "full"} {
+		for _, tc := range []struct {
+			width  int
+			reader bool
+			suffix string
+		}{
+			{9, false, ""}, {12, false, ""},
+			{13, false, "100%"}, {16, false, "100%"}, {20, false, "100%"},
+			{30, false, "100%  " + ansi.Strip(helpChip)},
+			{40, false, "100%  " + ansi.Strip(helpChip)},
+			{80, false, "100%  " + ansi.Strip(helpChip)},
+			{1000, false, "100%  " + ansi.Strip(helpChip)},
+			{60, true, "reader →8 100%  " + ansi.Strip(helpChip)},
+			{80, true, "reader →8 100%  " + ansi.Strip(helpChip)},
+		} {
+			t.Run(fmt.Sprintf("%s/%d/reader=%t", mode, tc.width, tc.reader), func(t *testing.T) {
+				c := config.Defaults()
+				c.Images, c.FooterPath, c.Reader = false, mode, tc.reader
+				path := "/目录e\u0301👩‍💻/" + strings.Repeat("文e\u0301👨‍👩‍👧‍👦🇷🇸", 12) + ".md"
+				a, err := NewApplication(longDoc, path, t.TempDir(), c, config.Theme{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(a.Close)
+				_, cmd := a.Update(tea.WindowSizeMsg{Width: tc.width, Height: 20})
+				appFiniteCommands(t, a, cmd)
+				if tc.reader {
+					appKey(a, "l")
+				}
+				view := a.View().Content
+				bar := view[strings.LastIndexByte(view, '\n')+1:]
+				plain := ansi.Strip(bar)
+				if !strings.HasPrefix(bar, brandChip) || ansi.StringWidth(bar) > tc.width || !utf8.ValidString(bar) {
+					t.Fatalf("footer geometry/encoding changed: %q", bar)
+				}
+				if tc.suffix != "" && !strings.HasSuffix(plain, tc.suffix) {
+					t.Fatalf("metadata priority changed: %q want suffix %q", plain, tc.suffix)
+				}
+				name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(plain, ansi.Strip(brandChip)), tc.suffix))
+				valid := map[string]bool{"": true, a.current.title: true}
+				g := uniseg.NewGraphemes(a.current.title)
+				for g.Next() {
+					_, end := g.Positions()
+					valid[a.current.title[:end]+"…"] = true
+				}
+				if !valid[name] {
+					t.Fatalf("label split a grapheme or leaked metadata: %q", name)
+				}
+				if tc.width >= 30 && tc.width < 1000 && !strings.HasSuffix(name, "…") {
+					t.Fatalf("long label not truncated: %q", name)
+				}
+				if tc.width == 1000 && name != a.current.title {
+					t.Fatalf("roomy footer lost label: %q", name)
+				}
+			})
+		}
 	}
 }

@@ -41,7 +41,11 @@ func NewApplication(source, name, cwd string, c config.Config, theme config.Them
 	return a, nil
 }
 func (a *Application) document(source, path string) (*Model, error) {
-	m := New(source, safeFilename(path))
+	title := path
+	if a.settings.FooterPath == "filename" && path != "(stdin)" {
+		title = filepath.Base(path)
+	}
+	m := New(source, safeFilename(title))
 	m.managed = true
 	if path != "(stdin)" {
 		m.SetPath(path)

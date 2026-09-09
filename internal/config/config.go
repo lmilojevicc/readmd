@@ -27,6 +27,7 @@ style: auto # auto follows the terminal palette; dark, light, notty are fixed st
 mouse: true # m toggles capture for this session only
 picker: list # link picker only: p opens list (focus/details) or vimium (badges)
 reader: false # r toggles the centered viewport for this session only
+footer_path: filename # reader footer only: filename (default) or full path
 reader_width: 120 # 1..10000 columns; viewport max(1, min(preference, terminal-2))
 table_cell_width: 40 # 1..10000 preferred body-cell wrap; full headers/atoms may exceed it
 images: true # only uses graphics when supported by the terminal
@@ -39,6 +40,7 @@ type Config struct {
 	Mouse          bool   `yaml:"mouse"`
 	Picker         string `yaml:"picker"`
 	Reader         bool   `yaml:"reader"`
+	FooterPath     string `yaml:"footer_path"`
 	ReaderWidth    int    `yaml:"reader_width"`
 	TableCellWidth int    `yaml:"table_cell_width"`
 	Images         bool   `yaml:"images"`
@@ -46,7 +48,7 @@ type Config struct {
 }
 
 func Defaults() Config {
-	return Config{Style: "auto", Mouse: true, Picker: "list", ReaderWidth: 120, TableCellWidth: 40, Images: true, RemoteImages: true}
+	return Config{Style: "auto", Mouse: true, Picker: "list", FooterPath: "filename", ReaderWidth: 120, TableCellWidth: 40, Images: true, RemoteImages: true}
 }
 
 func (c Config) Validate() error {
@@ -59,6 +61,11 @@ func (c Config) Validate() error {
 	case "list", "vimium":
 	default:
 		return fmt.Errorf("picker: want list or vimium; got %q", c.Picker)
+	}
+	switch c.FooterPath {
+	case "filename", "full":
+	default:
+		return fmt.Errorf("footer_path: want filename or full; got %q", c.FooterPath)
 	}
 	for _, field := range []struct {
 		name  string
@@ -93,7 +100,7 @@ func Parse(data []byte) (Config, error) {
 		return c, errors.New("YAML: expected a mapping of settings")
 	}
 	mapping := doc.Content[0]
-	types := map[string]string{"style": "!!str", "theme": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "reader_width": "!!int", "table_cell_width": "!!int", "images": "!!bool", "remote_images": "!!bool"}
+	types := map[string]string{"style": "!!str", "theme": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "footer_path": "!!str", "reader_width": "!!int", "table_cell_width": "!!int", "images": "!!bool", "remote_images": "!!bool"}
 	seen := map[string]bool{}
 	for i := 0; i < len(mapping.Content); i += 2 {
 		key, value := mapping.Content[i], mapping.Content[i+1]

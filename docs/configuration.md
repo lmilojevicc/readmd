@@ -38,6 +38,7 @@ style: auto
 mouse: true
 picker: list
 reader: false
+footer_path: filename
 reader_width: 120
 table_cell_width: 40
 images: true
@@ -51,10 +52,18 @@ remote_images: true
 | `mouse` | `true`, `false` | Start with mouse capture enabled or disabled; `m` toggles it for the session. |
 | `picker` | `list`, `vimium` | Presentation used by `p` for visible links and footnote references. |
 | `reader` | `true`, `false` | Start in the centered reader view; `r` toggles it for the session. |
+| `footer_path` | `filename`, `full` | Reader footer label: basename (default) or full file path. |
 | `reader_width` | Integer **1..10000** | Preferred reader viewport width in display columns. |
 | `table_cell_width` | Integer **1..10000** | Preferred top-level table body-cell wrap width in display columns. |
 | `images` | `true`, `false` | Allow graphics when supported by the terminal. |
 | `remote_images` | `true`, `false` | Allow remote image fetching, subject to image security and resource limits. |
+
+`footer_path` affects only the reader footer, not file access or browser rows.
+Omitting this key in existing configs uses `filename`; `full` shows the full path
+used by CLI and browser opens. Direct API callers retain their supplied path label,
+including relative paths. Both modes keep `(stdin)` for piped input, escape unsafe
+filename characters, and truncate to the available footer width. There is no
+CLI flag or runtime toggle.
 
 Width limits bound per-line allocation and leave safe arithmetic headroom.
 Reader geometry is `max(1, min(reader_width, vw-2))`, where `vw` is the available
