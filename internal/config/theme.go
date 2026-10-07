@@ -52,6 +52,7 @@ type GlyphStyle struct {
 }
 
 type Callout struct {
+	Color *Color     `yaml:"color"`
 	Icon  *string    `yaml:"icon"`
 	Rail  GlyphStyle `yaml:"rail"`
 	Title TextStyle  `yaml:"title"`
@@ -62,6 +63,22 @@ type Callouts struct {
 	Rail                                   GlyphStyle `yaml:"rail"`
 	Title                                  TextStyle  `yaml:"title"`
 	Note, Tip, Important, Warning, Caution Callout
+	Custom                                 map[string]Callout `yaml:"custom"`
+}
+
+func (c Callouts) IsZero() bool {
+	return c.Preset == nil && c.Rail == (GlyphStyle{}) && c.Title == (TextStyle{}) && c.Note == (Callout{}) && c.Tip == (Callout{}) && c.Important == (Callout{}) && c.Warning == (Callout{}) && c.Caution == (Callout{}) && len(c.Custom) == 0
+}
+
+func ValidCalloutID(id string) bool {
+	for i, r := range id {
+		letter := r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z'
+		digit := r >= '0' && r <= '9'
+		if !letter && (i == 0 || !digit && r != '_' && r != '-') {
+			return false
+		}
+	}
+	return id != ""
 }
 
 func ParseTheme(data []byte) (Theme, error) {
@@ -86,6 +103,13 @@ func ParseTheme(data []byte) (Theme, error) {
 	if err := doc.Content[0].Decode(&theme); err != nil {
 		return theme, err
 	}
+	if theme.Callouts.Custom != nil {
+		normalized := make(map[string]Callout, len(theme.Callouts.Custom))
+		for id, callout := range theme.Callouts.Custom {
+			normalized[strings.ToLower(id)] = callout
+		}
+		theme.Callouts.Custom = normalized
+	}
 	return theme, nil
 }
 
@@ -107,7 +131,7 @@ func validateThemeNode(n *yaml.Node, typ reflect.Type, path string) error {
 			}
 		}
 		if n.Tag == "!!str" {
-			if strings.HasSuffix(path, ".fg") && n.Value == "default" || strings.HasSuffix(path, ".bg") && n.Value == "none" {
+			if (strings.HasSuffix(path, ".fg") || strings.HasSuffix(path, ".color")) && n.Value == "default" || strings.HasSuffix(path, ".bg") && n.Value == "none" {
 				return nil
 			}
 			if len(n.Value) == 7 && n.Value[0] == '#' {
@@ -119,6 +143,25 @@ func validateThemeNode(n *yaml.Node, typ reflect.Type, path string) error {
 		return fail("want ANSI integer 0..255, quoted #RRGGBB, fg default or bg none")
 	}
 	switch typ.Kind() {
+	case reflect.Map:
+		if typ != reflect.TypeFor[map[string]Callout]() || n.Kind != yaml.MappingNode {
+			return fail("want a custom callout mapping")
+		}
+		seen := map[string]bool{}
+		for i := 0; i < len(n.Content); i += 2 {
+			key, value := n.Content[i], n.Content[i+1]
+			id := strings.ToLower(key.Value)
+			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" || !ValidCalloutID(key.Value) {
+				return fmt.Errorf("line %d: %s: invalid callout ID %q", key.Line, path, key.Value)
+			}
+			if seen[id] {
+				return fmt.Errorf("line %d: %s: duplicate callout ID %q", key.Line, path, key.Value)
+			}
+			seen[id] = true
+			if err := validateThemeNode(value, typ.Elem(), path+"."+id); err != nil {
+				return err
+			}
+		}
 	case reflect.Struct:
 		if n.Kind != yaml.MappingNode {
 			return fail("want a mapping (null is not an override)")
@@ -154,7 +197,7 @@ func validateThemeNode(n *yaml.Node, typ reflect.Type, path string) error {
 			return nil
 		}
 		maxWidth := 4
-		if strings.Contains(path, ".tasks.") {
+		if strings.HasPrefix(path, "theme.tasks.") {
 			maxWidth = 8
 		}
 		if len(n.Value) > 128 || strings.TrimSpace(n.Value) == "" || ansi.StringWidth(n.Value) < 1 || ansi.StringWidth(n.Value) > maxWidth {
@@ -251,6 +294,14 @@ func (t Theme) Clone() Theme {
 			if !v.IsNil() {
 				result.Set(reflect.New(v.Type().Elem()))
 				result.Elem().Set(clone(v.Elem()))
+			}
+		case reflect.Map:
+			if !v.IsNil() {
+				result.Set(reflect.MakeMapWithSize(v.Type(), v.Len()))
+				iter := v.MapRange()
+				for iter.Next() {
+					result.SetMapIndex(iter.Key(), clone(iter.Value()))
+				}
 			}
 		case reflect.Struct:
 			for i := 0; i < v.NumField(); i++ {

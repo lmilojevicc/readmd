@@ -555,9 +555,9 @@ func TestTargetActivationRefusesDeferredDestinations(t *testing.T) {
 		dest string
 		want string
 	}{
-		{"relative.md", "file navigation not implemented"},
-		{"file:///tmp/a", "file navigation not implemented"},
-		{"#footnote", "internal link navigation not implemented"},
+		{"relative.md", "file navigation requires application"},
+		{"file:///tmp/a", "unsupported link"},
+		{"#footnote", "heading not found: footnote"},
 		{"javascript:alert(1)", "unsupported link"},
 	} {
 		t.Run(tc.dest, func(t *testing.T) {

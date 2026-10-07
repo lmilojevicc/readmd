@@ -10,6 +10,11 @@ import (
 )
 
 func substituteMath(src string) string {
+	candidate, _ := substituteMathWithEdits(src)
+	return candidate
+}
+
+func substituteMathWithEdits(src string) (string, []edit) {
 	bsrc := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var prot [][2]int
@@ -106,7 +111,7 @@ func substituteMath(src string) string {
 		return ast.WalkContinue, nil
 	})
 	if len(chunks) == 0 {
-		return src
+		return src, nil
 	}
 	sort.Slice(prot, func(i, j int) bool { return prot[i][0] < prot[j][0] })
 	merged := prot[:0]
@@ -124,10 +129,24 @@ func substituteMath(src string) string {
 	for _, c := range chunks {
 		edits = append(edits, mathChunkEdits(src, prot, c.start, c.stop)...)
 	}
+	return applyMathEdits(src, edits)
+}
+
+// The shared edit applicator assumes disjoint ranges. Validate this phase's
+// exact edits before applying them or exposing original-byte coordinates.
+func applyMathEdits(src string, edits []edit) (string, []edit) {
 	if len(edits) == 0 {
-		return src
+		return src, nil
 	}
-	return applyEdits(src, edits)
+	sort.Slice(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	previousEnd := 0
+	for _, e := range edits {
+		if e.start < 0 || e.start >= e.end || e.end > len(src) || e.start < previousEnd {
+			return src, nil
+		}
+		previousEnd = e.end
+	}
+	return applyEdits(src, edits), edits
 }
 
 func mathChunkEdits(src string, prot [][2]int, start, stop int) []edit {

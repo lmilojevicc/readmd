@@ -28,7 +28,7 @@ Linux and macOS are supported; Windows support is not promised.
 | `g` `G` | Top / bottom. |
 | `h` `l` `0` | Horizontal pan when content is wide, reset. |
 | `p` | Pick visible links/references: type hint, `Tab`/arrows focus, `Enter` activates, `Backspace` edits, `Esc` cancels. |
-| `Backspace` | Return from a footnote jump in normal mode. |
+| `Backspace` | Return from a heading, footnote, or relative-file jump in normal mode. |
 | `m` | Toggle mouse capture (enabled by default). |
 | `r` | Toggle centered reader viewport (120 columns by default) with horizontal panning. |
 | `Ctrl+f` | Browse Markdown files (normal reader only). |
@@ -81,9 +81,9 @@ There is no content preview, browser editor, or per-file reading history.
 ## Reader, outline, and search
 
 `r` centers a reader viewport up to 120 display columns by default, bounded by
-`max(1, min(reader_width, vw-2))`. The left margin is display-only; prose keeps
-its natural width and can pan horizontally. Table cells use the same wrapping
-policy as normal view. The heading anchor preserves your place when toggling,
+`max(1, min(reader_width, vw-2))`. The left margin is display-only; prose wraps
+to the reader width. Structural content can still pan horizontally, and table
+cells use the same wrapping policy as normal view. The heading anchor preserves your place when toggling,
 and the status bar shows `reader`.
 
 The outline offers title filtering and reversible heading previews. `Esc`,
@@ -99,9 +99,23 @@ atomic saves, keeping your reading position anchored to the nearest heading.
 
 Links use OSC 8 hyperlinks with the full URL preserved, including queries and
 fragments. `p` gives visible links and footnote references fixed-width keyboard
-hints. HTTP, HTTPS, and mailto targets open externally; relative and file
-navigation and ordinary `#heading` links are not supported. Footnote jumps
-stay in the reader; normal-mode `Backspace` returns from a jump.
+hints. HTTP, HTTPS, and mailto targets open externally. `#heading` jumps within
+the document; `#` goes to the top. Heading fragments use lowercase,
+Unicode-preserving slugs (punctuation removed, spaces become hyphens, duplicates
+get `-1`, `-2`, …), with exact heading-text fallback.
+
+Relative `.md` / `.markdown` links, including `../`, regular-file symlinks and
+optional heading fragments, open in the reader. Paths resolve beside the current
+file, or from the startup working directory for stdin. Percent escapes decode
+once. Absolute paths, `file:` URLs, queries, other file types and block-ID
+fragments are unsupported. Missing files/headings leave the current document and
+position intact.
+
+Normal-mode `Backspace` retraces heading, footnote and file jumps in chronological
+order (up to 128 entries). Returning to a file rereads it; returning to stdin
+restores its raw source. Failed returns preserve history. Changed-source reloads
+clear current-document jump positions but retain cross-file history; ordinary
+browser opens start a new link history.
 
 The default list picker overlays the bottom of the document without moving
 or reflowing it; even targets covered by the list remain selectable:
@@ -131,10 +145,17 @@ also depend on terminal support.
 ## Rendering
 
 GFM tables, task lists, footnotes, strikethrough, and alerts are supported.
-GitHub-style callouts (`> [!NOTE]`) get per-type colored rails and icon titles.
+GitHub/Obsidian-style callouts (`> [!NOTE]`) get per-type rails and icon titles
+under every style. Optional inline titles, title-only callouts, nesting,
+list-contained callouts and bodies with headings/code/tables are supported.
+Immediate `+`/`-` folding markers are consumed, but bodies are **always visible**;
+there is no interactive folding. Unknown valid keywords use note appearance and
+their own readable title. See [callout types and customization](configuration.md#callouts-and-nerd-font-recipe).
 Mermaid `flowchart` and `sequenceDiagram` render as box-drawing ASCII;
 unsupported diagram types fall back to source. LaTeX math becomes Unicode
-(for example, `$\alpha \leq \beta$` becomes α ≤ β).
+(for example, `$\alpha \leq \beta$` becomes α ≤ β). If substitution would
+change the document’s heading structure, math stays literal for that render so
+source heading links and readable content remain intact.
 
 The default `auto` theme uses your terminal's own 16-color palette, with no
 hex/truecolor colors or painted backgrounds. `--style dark|light|notty` selects
@@ -142,12 +163,17 @@ fixed Glamour styles instead (`notty` is attribute-only).
 
 ### Wrapping and tables
 
-In normal view, top-level paragraphs and headings wrap at the viewport width.
-Code/Mermaid, whole lists, blockquotes, and definition lists retain natural
-width and pan; code blocks never silently reflow. Explicit Markdown hard
-breaks survive. Quoted source lines preserve line breaks and rail/list
-indentation, including list-nested quotes; ordinary paragraph soft breaks flow
-as spaces.
+Top-level paragraphs/headings, ordinary list prose (bullet, numbered, task and
+nested) and callout prose wrap at the viewport width, or the effective reader
+width. List indentation, checkboxes and callout rails reduce the available prose
+width. List prose owned by an ordinary blockquote or definition list, and ordinary
+quotes inside callouts, retain their existing intrinsic policy. List/callout
+wrapping preserves unbreakable tokens and graphemes.
+Code/Mermaid, images, ordinary blockquotes and definition lists retain natural
+width and pan; embedded code and tables do not inherit prose wrapping. Code
+blocks never silently reflow. Explicit Markdown hard breaks survive. Quoted
+source lines preserve line breaks and rail/list indentation, including
+list-nested quotes; ordinary paragraph soft breaks flow as spaces.
 
 Top-level table body cells soft-wrap at whitespace around **40 display columns
 per column** by default. Complete headers and longest unbreakable tokens set
@@ -163,10 +189,12 @@ and cells beyond the header count are discarded by Goldmark.
 
 Only **top-level tables** use this policy. Tables nested in lists or blockquotes
 stay on stock Glamour with their complete container and do not soft-wrap cells.
+Nested-table same-document anchors show labels without numbered footers; external
+links retain stock footers.
 
-Stock Glamour can hard-split long prose tokens, including inline code and
-printed URLs; OSC 8 destinations still retain the full URL. Reader view can
-help inspect an unbroken token. Widths and horizontal offsets account for CJK,
+Stock Glamour can hard-split long top-level prose tokens, including inline code
+and printed URLs, in both normal and reader view; OSC 8 destinations still retain
+the full URL. Widths and horizontal offsets account for CJK,
 emoji, and combining marks; unsafe physical-wrap coordinates still have the
 picking limitations described above.
 
@@ -177,7 +205,14 @@ the text grid. Other terminals get alt text. Remote images are fetched
 asynchronously and cached under `~/.cache/readmd/`. Enabling images in the
 configuration does not bypass terminal detection or image security/resource
 limits. Use `--no-images` to disable graphics or `--no-remote-images` to allow
-only local images.
+only local images. Nested images remain textual stock fallbacks, not graphics;
+inline fallback text may wrap with list/callout prose.
+
+Graphical figures align with prose inside its document margins. Startup
+`image_alignment: left|center|right` (default `left`) positions them within the
+normal text area or effective reader text area, independently of wider tables
+and code. The reader outer margin is added only for display. Images fit the
+usable area without upscaling; tiny viewports retain stock prose margin limitations.
 
 Image layout uses terminal-reported cell pixels, with a 10×20-pixel fallback
 until a valid report arrives (or if unsupported). Kitty virtual placements

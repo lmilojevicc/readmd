@@ -41,6 +41,7 @@ reader: false
 footer_path: filename
 reader_width: 120
 table_cell_width: 40
+image_alignment: left
 images: true
 remote_images: true
 ```
@@ -55,6 +56,7 @@ remote_images: true
 | `footer_path` | `filename`, `full` | Reader footer label: basename (default) or full file path. |
 | `reader_width` | Integer **1..10000** | Preferred reader viewport width in display columns. |
 | `table_cell_width` | Integer **1..10000** | Preferred top-level table body-cell wrap width in display columns. |
+| `image_alignment` | `left`, `center`, `right` | Graphical figure position within the usable prose area (default `left`). |
 | `images` | `true`, `false` | Allow graphics when supported by the terminal. |
 | `remote_images` | `true`, `false` | Allow remote image fetching, subject to image security and resource limits. |
 
@@ -67,12 +69,16 @@ CLI flag or runtime toggle.
 
 Width limits bound per-line allocation and leave safe arithmetic headroom.
 Reader geometry is `max(1, min(reader_width, vw-2))`, where `vw` is the available
-terminal viewport width. It is centered, with natural-width prose and horizontal
-panning rather than prose reflow to the reader width.
+terminal viewport width. It is centered, with prose wrapping to the reader width
+and structural content retaining horizontal panning.
 
 Table width is a preferred **body-cell** wrap width, not a document/table clamp:
 complete headers and unbreakable tokens may exceed it; short columns stay
 compact. See [wrapping and tables](usage.md#wrapping-and-tables).
+
+`image_alignment` excludes document margins and the reader display-only frame;
+wide code/tables do not affect positioning. It has no CLI flag or runtime toggle.
+Images fit this usable area without upscaling.
 
 `images: true` still requires supported terminal graphics; `remote_images: true`
 does not bypass image security or resource limits. See [images](usage.md#images).
@@ -205,12 +211,22 @@ bracket matching is used to guess a role.
 
 ### Callouts and Nerd Font recipe
 
-Callout enhancement retains its source-provenance boundary: **top-level GFM
-alerts** with a standalone `[!TYPE]` first line and supported paragraph/list
-contents. Nested alerts and alert quotes containing fences, tables, headings or
-other unsupported blocks remain stock. Custom controls work under every selectable
-base within that boundary; unconfigured non-auto bases keep their existing stock
-callout presentation. Plain blockquotes and body text are not restyled.
+Callouts begin with `[!TYPE]` on the first quoted line, optionally followed by
+an immediate `+`/`-` and an inline Markdown title. Title-only, nested and
+list-contained callouts work under every base, including `notty`. Bodies may
+contain lists, code, tables and headings. Folding signs never hide content.
+Prose wraps inside owned rails/indentation; embedded structural blocks remain
+intrinsic. Plain blockquotes and definition lists retain their width policy.
+
+Supported types: `note`, `tip`, `important`, `warning`, `caution`, `abstract`
+(`summary`, `tldr`), `info`, `todo`, `success` (`check`, `done`), `question`
+(`help`, `faq`), `failure` (`fail`, `missing`), `danger` (`error`), `bug`, `example`,
+and `quote` (`cite`); `hint` aliases `tip`, and `attention` aliases `warning`.
+GitHub `important` and `caution` remain distinct. Unknown valid keywords inherit
+note appearance with a readable keyword-derived title, but not legacy `note`
+overrides. Malformed markers remain ordinary quotes. An exceptional unsupported
+inline container crossing the title/body source-line boundary (such as a
+multiline image label) also leaves the complete quote in stock presentation.
 
 `callouts` accepts:
 
@@ -219,14 +235,32 @@ callout presentation. Plain blockquotes and body text are not restyled.
   same Octicons as the default, with rail `▋`.
 - `rail`: shared text style plus `glyph`.
 - `title`: shared text style, covering icon and title, not body text.
-- `note`, `tip`, `important`, `warning`, `caution`: each accepts `icon`, `rail`
-  (same shape as shared rail), and `title` (same text-style shape).
+- `note`, `tip`, `important`, `warning`, `caution`: legacy per-type entries accept
+  `color`, `icon`, `rail` (same shape as shared rail), and `title` (text style).
+- `custom`: keyword-to-entry mapping with the same fields, for new keywords or
+  built-in/alias overrides. IDs match ASCII `[A-Za-z][A-Za-z0-9_-]*`, normalize to
+  lowercase, and cannot duplicate after case folding.
+- `color`: foreground shorthand for both rail and title; ANSI **0..255**,
+  quoted `"#RRGGBB"`, or `default` (never `none`). Explicit `rail.fg` / `title.fg`
+  override shorthand within each entry. Notty ignores all colors/backgrounds.
 
-Resolution is built-in per-type color/defaults, preset glyphs, shared controls,
-then per-type controls. Enhanced titles stay bold by default; `bold: false`
-really disables that. Per-type icons override the preset. Unconfigured auto
-callouts and partial themes with no preset inherit the default Octicons. Empty
-mappings do not enable enhancement on non-auto bases.
+Resolution is built-in defaults → preset/shared controls → canonical `custom`
+entry → literal alias `custom` entry → legacy canonical entry. Icons follow the
+same order. Titles stay bold by default; `bold: false` disables that. Omitting a
+preset keeps default Octicons. For example, `[!summary]` below uses abstract's
+rail color 14 and summary's title color 10:
+
+```yaml
+callouts:
+  custom:
+    experiment: {color: 13, icon: '⚗', title: {bold: true}}
+    abstract: {color: 14}
+    summary: {title: {fg: 10}}
+```
+
+`title` styles the icon/title; it does not supply title text. Put custom title
+text directly after the Markdown marker. Controls never recolor body text or
+nested code/table content wholesale.
 
 Every enhanced callout uses exactly one icon-to-title separator space, with no
 extra automatic reservation. All explicit icon spaces are preserved: `icon: 'i'`

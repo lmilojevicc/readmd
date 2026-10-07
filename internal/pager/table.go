@@ -63,7 +63,7 @@ func renderThemedTable(node *extast.Table, source []byte, options glamansi.Optio
 					return "", err
 				}
 			}
-			cells[col] = expandTableTabs(cellText)
+			cells[col] = expandDisplayTabs(cellText)
 			// Empty destinations are inert resets, placed outside complete cells.
 			// ANSI cuts replay these bounds on every wrapped continuation.
 			if bytes.Contains(cell.Lines().Value(source), []byte("[^")) {
@@ -181,7 +181,13 @@ func tableInline(e glamansi.ElementRenderer, tableID int, serial *int, imageStyl
 			e.SkipHref = true
 		}
 		*serial++
-		return tableLinkElement{e, fmt.Sprintf("%s%d-%d", tableLinkPrefix, tableID, *serial)}
+		id := fmt.Sprintf("%s%d-%d", tableLinkPrefix, tableID, *serial)
+		if strings.HasPrefix(e.URL, "#") {
+			dest := e.URL
+			e.URL = "#"
+			return proseLinkElement{e, dest, id, true}
+		}
+		return tableLinkElement{e, id}
 	case *glamansi.ImageElement:
 		e.TextOnly = e.Text != ""
 		*serial++
@@ -207,7 +213,11 @@ func tableLinkLabel(e glamansi.ElementRenderer, imageStyle glamansi.StylePrimiti
 	return e
 }
 
-func expandTableTabs(s string) string {
+// Match Lipgloss's display TAB policy without changing escape payloads.
+func expandDisplayTabs(s string) string {
+	if strings.IndexByte(s, '\t') < 0 {
+		return s
+	}
 	var b strings.Builder
 	tab := lipgloss.NewStyle().Render("\t")
 	state := byte(0)

@@ -10,5 +10,6 @@ reader: false # r toggles the centered viewport for this session only
 footer_path: filename # reader footer only: filename (default) or full path
 reader_width: 120 # 1..10000 columns; viewport max(1, min(preference, terminal-2))
 table_cell_width: 40 # 1..10000 preferred body-cell wrap; full headers/atoms may exceed it
+image_alignment: left # graphical figures within prose margins: left, center, right
 images: true # only uses graphics when supported by the terminal
 remote_images: true # existing remote-image security/resource limits still apply

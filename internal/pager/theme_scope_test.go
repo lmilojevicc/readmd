@@ -123,8 +123,8 @@ func TestThemeContinuationMargins(t *testing.T) {
 					} else {
 						content = "**" + content + "**"
 					}
-					// Quotes/lists keep intrinsic width, but explicit quote source breaks
-					// still exercise continuation indentation while an inline role is open.
+					// Ordinary quotes keep intrinsic width and source breaks; list prose
+					// now also exercises wrapped continuation padding with an open role.
 					if strings.Contains(context, ">") && !heading {
 						content = strings.Replace(content, "word word", "word\nword", 1)
 					}

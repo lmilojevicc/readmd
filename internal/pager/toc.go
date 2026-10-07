@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"html"
 	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -16,6 +18,7 @@ import (
 type heading struct {
 	level        int
 	text         string
+	slug         string
 	renderedText string
 	line         int
 	srcLine      int
@@ -26,6 +29,7 @@ func extractHeadings(src string) []heading {
 	doc := md.Parser().Parse(text.NewReader(bsrc))
 	var heads []heading
 	prev := 0
+	used := map[string]bool{}
 	// This visitor never returns an error.
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -42,7 +46,14 @@ func extractHeadings(src string) []heading {
 		prev = line
 		var rendered strings.Builder
 		writePlain(&rendered, h.FirstChild(), bsrc, true)
-		heads = append(heads, heading{level: h.Level, text: plainText(h, bsrc), renderedText: rendered.String(), srcLine: line})
+		title := plainText(h, bsrc)
+		base := headingSlug(title)
+		slug := base
+		for suffix := 1; used[slug]; suffix++ {
+			slug = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		used[slug] = true
+		heads = append(heads, heading{level: h.Level, text: title, slug: slug, renderedText: rendered.String(), srcLine: line})
 		return ast.WalkContinue, nil
 	})
 	return heads
@@ -52,7 +63,7 @@ func writePlain(b *strings.Builder, n ast.Node, src []byte, destinations bool) {
 	for c := n; c != nil; c = c.NextSibling() {
 		switch c := c.(type) {
 		case *ast.Text:
-			b.WriteString(html.UnescapeString(string(c.Segment.Value(src))))
+			b.WriteString(html.UnescapeString(string(util.UnescapePunctuations(c.Segment.Value(src)))))
 			if c.SoftLineBreak() {
 				b.WriteByte(' ')
 			}
@@ -64,6 +75,8 @@ func writePlain(b *strings.Builder, n ast.Node, src []byte, destinations bool) {
 					b.Write(t.Segment.Value(src))
 				}
 			}
+		case *ast.AutoLink:
+			b.Write(c.Label(src))
 		case *ast.Link:
 			writePlain(b, c.FirstChild(), src, destinations)
 			if destinations {
@@ -483,4 +496,37 @@ func (m *Model) overlay(body string, x0, y0, pw int, rows []string) string {
 		lines[i] = left + rows[i-y0] + ansi.TruncateLeft(lines[i], x0+pw, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func headingSlug(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case unicode.IsSpace(r):
+			b.WriteByte('-')
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		case unicode.IsPunct(r) || unicode.IsControl(r) || (r < 128 && !unicode.IsLetter(r) && !unicode.IsDigit(r)):
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func headingLine(heads []heading, fragment string) (int, bool) {
+	if fragment == "" {
+		return 0, true
+	}
+	for _, h := range heads {
+		if h.slug == fragment {
+			return h.line, true
+		}
+	}
+	for _, h := range heads {
+		if h.text == fragment {
+			return h.line, true
+		}
+	}
+	return 0, false
 }

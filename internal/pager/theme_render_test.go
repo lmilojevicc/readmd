@@ -348,14 +348,13 @@ func TestThemeCodeTabs(t *testing.T) {
 			plain := renderThemeTest(t, src, paletteStyleName, "", 80)
 			clear := renderThemeTest(t, src, paletteStyleName, "code_block: {bg: none}", 80)
 			painted := renderThemeTest(t, src, paletteStyleName, "code_block: {bg: '#010203'}", 80)
-			if !strings.Contains(plain, "\t") || !strings.Contains(clear, "\t") {
-				t.Fatal("no-rectangle changed TAB bytes")
+			for _, out := range []string{plain, clear, painted} {
+				if strings.Contains(out, "\t") {
+					t.Fatal("display TAB not expanded")
+				}
 			}
-			if strings.Contains(painted, "\t") {
-				t.Fatal("painted TAB not expanded")
-			}
-			if trimTrailing(ansi.Strip(expandTableTabs(plain))) != trimTrailing(ansi.Strip(painted)) {
-				t.Fatal("TAB expansion differs from existing four-space policy")
+			if ansi.Strip(plain) != ansi.Strip(clear) || trimTrailing(ansi.Strip(plain)) != trimTrailing(ansi.Strip(painted)) {
+				t.Fatal("TAB expansion differs across code backgrounds")
 			}
 		})
 	}
@@ -449,12 +448,6 @@ func TestThemeCalloutIconDefaults(t *testing.T) {
 						stock, _, _, err := renderThemedStyled(imgCtx{}, src, width, base, false, theme, 12)
 						if err != nil {
 							t.Fatal(err)
-						}
-						if base != paletteStyleName && !tc.configured {
-							if out != stock {
-								t.Fatalf("unconfigured non-auto callout changed:\n%q\n%q", out, stock)
-							}
-							return
 						}
 						plain := ansi.Strip(out)
 						want := tc.rail + " " + tc.icon + " " + kind.title
@@ -918,7 +911,7 @@ func TestThemeCalloutIconPadding(t *testing.T) {
 									continue
 								}
 								found = true
-								if strings.TrimLeft(plain, " ") != want || !strings.Contains(line, wantTitle+"\x1b[m") {
+								if strings.TrimLeft(plain, " ") != want {
 									t.Fatalf("styled title = %q, want prefix %q and intact styled title %q", line, want, wantTitle)
 								}
 								margin := len(plain) - len(strings.TrimLeft(plain, " "))

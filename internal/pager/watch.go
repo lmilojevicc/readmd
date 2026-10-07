@@ -251,6 +251,7 @@ func (m *Model) applyReload(msg reloadDoneMsg) tea.Cmd {
 	m.source = src
 	m.locations = nil
 	m.pendingLocation = nil
+	m.pendingHeading = nil
 	m.flash = "reloaded"
 	if edited {
 		m.flash = "edited"

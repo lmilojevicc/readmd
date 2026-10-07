@@ -232,16 +232,37 @@ func TestTableFootnoteCellOrderReview(t *testing.T) {
 	}
 }
 
-func TestExpandTableTabsPreservesControls(t *testing.T) {
+func TestExpandDisplayTabsUnchanged(t *testing.T) {
+	for _, input := range []string{
+		"", "ordinary document", "界👨‍👩‍👧‍👦e\u0301",
+		"\x1b[31mtext\x1b[m",
+		ansi.SetHyperlink("https://example.org/full?target=preserved", "id=kept"),
+		ansi.SetHyperlink("https://example.org/path\tpart", "id=\tkept"),
+	} {
+		t.Run(fmt.Sprintf("%q", input), func(t *testing.T) {
+			if got := expandDisplayTabs(input); got != input {
+				t.Fatalf("changed TAB-free text or escape payload: %q", got)
+			}
+		})
+	}
+}
+
+func TestExpandDisplayTabsPreservesControls(t *testing.T) {
 	for _, controls := range []string{
 		ansi.SetHyperlink("https://example.org/path\tpart?x=1", "id=\tkept"),
 		"\x1bP0;1|payload\tkept\x1b\\",
 		"\x1b]0;title\tkept\a",
+		"\x1b_Ga=T;payload\tkept\x1b\\",
+		"\x1b]8;id=\tkept;https://example.org/path\tpart\a",
+		"\x1b[31m界👨‍👩‍👧‍👦e\u0301\x1b[m",
 	} {
 		t.Run(fmt.Sprintf("%q", controls), func(t *testing.T) {
-			got := expandTableTabs("a\tb" + controls + "c\td")
+			got := expandDisplayTabs("a\tb" + controls + "c\td")
 			if got != "a    b"+controls+"c    d" {
 				t.Fatalf("visible tab expansion changed controls: %q", got)
+			}
+			if expandDisplayTabs(got) != got {
+				t.Fatal("display TAB expansion is not idempotent")
 			}
 		})
 	}

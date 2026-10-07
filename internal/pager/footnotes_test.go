@@ -216,7 +216,7 @@ func TestFootnoteHintJumpAndBack(t *testing.T) {
 }
 
 func TestFootnoteReaderJumpRestoresMarginAndOffset(t *testing.T) {
-	src := strings.Repeat("界", 70) + "[^1]\n\n" + strings.Repeat("filler\n\n", 10) + "[^1]: note body\n"
+	src := "- " + strings.Repeat("x", 140) + "[^1]\n\n" + strings.Repeat("filler\n\n", 10) + "[^1]: note body\n"
 	m := newRenderedModel(t, src, 140, 16)
 	settle(t, m, press(m, "r"))
 	m.vp.SetXOffset(30)
@@ -406,18 +406,11 @@ func TestWrappedFootnoteRegionsNavigate(t *testing.T) {
 				if text.String() != marker {
 					t.Fatalf("regions do not reconstruct marker: %q", text.String())
 				}
-				definitionEnd := definition.line
-				if !reader {
-					definitionEnd++
-				}
-				if !strings.Contains(m.stripped[definitionEnd], "note body") {
+				if !strings.Contains(m.stripped[definition.line+1], "note body") {
 					t.Fatalf("wrong definition row: %#v", definition)
 				}
-				if reader && len(target.regions) != 1 {
-					t.Fatal("reader marker should stay natural")
-				}
-				if !reader && len(target.regions) < 2 {
-					t.Fatal("normal marker should wrap")
+				if len(target.regions) < 2 {
+					t.Fatal("prose marker should wrap in both modes")
 				}
 				for _, reg := range target.regions {
 					m.vp.SetYOffset(reg.line)

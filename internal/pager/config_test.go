@@ -2,7 +2,6 @@ package pager
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -125,10 +124,10 @@ func TestConfiguredTableWidthAndRenderSnapshot(t *testing.T) {
 					if reader && m.vp.Width() != 65 {
 						t.Fatal("configured reader viewport lost initial geometry")
 					}
-					// Reader framing never changes table cells or prose rendering width.
+					// Reader framing changes prose width, not table cells.
 					wrapWidth := 140
 					if reader {
-						wrapWidth = 0
+						wrapWidth = 65
 					}
 					want, _, _, err := renderDoc(imgCtx{}, src, wrapWidth, m.style, cap)
 					if err != nil || strings.Join(m.base, "\n") != want {
@@ -152,31 +151,45 @@ func TestConfiguredTableWidthAndRenderSnapshot(t *testing.T) {
 	}
 }
 
-func TestConfiguredReaderProseRemainsNatural(t *testing.T) {
+func TestConfiguredReaderProseWraps(t *testing.T) {
 	src := "# Topic\n\n" + strings.Repeat("ordinary prose flows naturally ", 20) + "\n"
-	var baseline []string
-	for _, cap := range []int{30, 72, 120} {
-		t.Run(fmt.Sprint(cap), func(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		width, preference, wantWidth int
+	}{
+		{"default cap", 140, 120, 120},
+		{"configured", 140, 72, 72},
+		{"narrow terminal", 30, 120, 28},
+		{"minimum terminal", 1, 120, 1},
+		{"minimum preference", 140, 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			c := config.Defaults()
 			c.Reader = true
-			c.ReaderWidth = cap
+			c.ReaderWidth = tc.preference
 			c.Images = false
 			m := New(src, "reader.md")
 			if err := m.Configure(c); err != nil {
 				t.Fatal(err)
 			}
 			defer m.Close()
-			_, cmd := m.Update(tea.WindowSizeMsg{Width: 140, Height: 12})
+			_, cmd := m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 12})
 			settle(t, m, cmd)
-			if baseline == nil {
-				baseline = append([]string(nil), m.base...)
-			} else if !reflect.DeepEqual(m.base, baseline) {
-				t.Fatal("reader width reflowed prose")
+			want, _, _, err := renderDoc(imgCtx{}, src, tc.wantWidth, m.style)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if m.vp.Width() != cap || m.widest <= cap {
-				t.Fatal("reader width did not only change viewport geometry")
+			if strings.Join(m.base, "\n") != want {
+				t.Fatalf("reader prose must wrap like regular prose at width %d", tc.wantWidth)
 			}
-			margin := strings.Repeat(" ", (140-cap)/2)
+			if m.vp.Width() != tc.wantWidth {
+				t.Fatalf("viewport width = %d, want %d", m.vp.Width(), tc.wantWidth)
+			}
+			// At tiny widths, stock Glamour's margins and unbreakable words can overflow.
+			if tc.wantWidth >= 28 && (m.widest > tc.wantWidth || len(m.base) < 8) {
+				t.Fatalf("prose did not reflow: widest %d, lines %d", m.widest, len(m.base))
+			}
+			margin := strings.Repeat(" ", max(0, (tc.width-tc.wantWidth)/2))
 			if !strings.HasPrefix(bodyOf(m), margin) {
 				t.Fatal("configured centered margin missing")
 			}

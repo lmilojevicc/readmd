@@ -62,9 +62,10 @@ func graphicsDetected(getenv func(string) string) bool {
 }
 
 type ImageConfig struct {
-	DocDir   string
-	NoImages bool
-	NoRemote bool
+	DocDir    string
+	NoImages  bool
+	NoRemote  bool
+	Alignment string
 }
 
 type imgCtx struct {
@@ -72,6 +73,8 @@ type imgCtx struct {
 	NoRemote              bool
 	Dir                   string
 	Width                 int
+	Alignment             string
+	Padding, LeftPadding  int
 	CellWidth, CellHeight int
 	store                 *imageStore
 }
@@ -89,6 +92,7 @@ type figure struct {
 	orig       string
 	id         int
 	cols, rows int
+	left       int
 }
 
 type imgRef struct {
@@ -356,7 +360,8 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 			}
 			return ast.WalkContinue, nil
 		}
-		cols, rows := fitCells(ref.data.w, ref.data.h, max(1, o.Width-2), o.CellWidth, o.CellHeight)
+		avail := max(1, o.Width-o.Padding)
+		cols, rows := fitCells(ref.data.w, ref.data.h, avail, o.CellWidth, o.CellHeight)
 		if cols > maxDiacritic || rows > maxDiacritic {
 			return ast.WalkContinue, nil
 		}
@@ -366,6 +371,14 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 		if end < len(src) && src[end] == '\n' {
 			end++
 		}
+		left := o.LeftPadding
+		slack := max(0, avail-cols)
+		switch o.Alignment {
+		case "center":
+			left += slack / 2
+		case "right":
+			left += slack
+		}
 		token := fmt.Sprintf(imgTokenFmt, nonceStr, len(figs))
 		edits = append(edits, edit{start, end, token + "\n"})
 		figs = append(figs, figure{
@@ -374,6 +387,7 @@ func insertFigures(src string, o imgCtx) (string, []figure, []string) {
 			id:    ref.id,
 			cols:  cols,
 			rows:  rows,
+			left:  left,
 		})
 		return ast.WalkContinue, nil
 	})
@@ -517,7 +531,7 @@ func renderFigure(f figure) string {
 	for r := range f.rows {
 		lines[r] = placeholderLine(f.id, f.cols, r)
 	}
-	return strings.Join(lines, "\n")
+	return padMargin(strings.Join(lines, "\n"), f.left)
 }
 
 // placeholderLine emits one row of cols Unicode-placeholder cells. The image

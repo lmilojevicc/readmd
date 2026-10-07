@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -143,24 +144,34 @@ func rawLinkRegions(lines []string) []rawLinkRegion {
 
 func parseRenderedLinkTargets(src string, lines []string) []linkTarget {
 	var raw []rawLinkRegion
-	var tables []linkTarget
+	var identified []linkTarget
+	skipSource := map[int]bool{}
 	byIdentity := map[[2]string]int{}
 	for _, reg := range rawLinkRegions(lines) {
-		if !strings.HasPrefix(reg.id, tableLinkPrefix) {
+		if !strings.HasPrefix(reg.id, tableLinkPrefix) && !strings.HasPrefix(reg.id, proseLinkPrefix) {
 			raw = append(raw, reg)
 			continue
+		}
+		if index, err := strconv.Atoi(strings.TrimPrefix(reg.id, proseLinkPrefix+"link-")); err == nil {
+			skipSource[index] = true
 		}
 		identity := [2]string{reg.id, reg.dest}
 		index, ok := byIdentity[identity]
 		if !ok {
-			index = len(tables)
+			index = len(identified)
 			byIdentity[identity] = index
-			tables = append(tables, linkTarget{id: reg.id, dest: reg.dest})
+			identified = append(identified, linkTarget{id: reg.id, dest: reg.dest})
 		}
-		tables[index].regions = append(tables[index].regions, reg.targetRegion)
-		tables[index].texts = append(tables[index].texts, reg.text)
+		identified[index].regions = append(identified[index].regions, reg.targetRegion)
+		identified[index].texts = append(identified[index].texts, reg.text)
 	}
-	out := append(parseSourceLinkTargets(raw, sourceLinkLayout(src)), tables...)
+	var stockLayout []sourceLink
+	for i, link := range sourceLinkLayout(src) {
+		if !skipSource[i] {
+			stockLayout = append(stockLayout, link)
+		}
+	}
+	out := append(parseSourceLinkTargets(raw, stockLayout), identified...)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i].regions[0], out[j].regions[0]
 		return a.line < b.line || a.line == b.line && a.start < b.start
@@ -250,7 +261,7 @@ func sourceLinkLayout(src string) []sourceLink {
 // Glamour prints resolved relative paths, but keeps the original OSC target.
 func printedLinkDestination(dest string) string {
 	u, err := url.Parse(dest)
-	if err != nil || dest == "#"+u.Fragment {
+	if err != nil || strings.HasPrefix(dest, "#") {
 		return ""
 	}
 	if !u.IsAbs() {
@@ -524,21 +535,36 @@ func (m *Model) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 
 func (m *Model) activateTarget(target hintTarget) tea.Cmd {
 	m.stopTargets(true)
+	if m.rendering {
+		m.flash = "wait for rendering"
+		return nil
+	}
 	if target.kind == targetFootnote {
+		if m.managed {
+			return m.navigationCommand(navigationRequest{footnote: &target.linkTarget})
+		}
 		m.jumpFootnote(target.linkTarget)
 		return nil
 	}
 	dest := target.dest
-	if err := validateExternalURL(dest); err != nil {
-		u, _ := url.Parse(dest)
-		switch {
-		case strings.HasPrefix(dest, "#"):
-			m.flash = "internal link navigation not implemented"
-		case u != nil && (u.Scheme == "" || u.Scheme == "file"):
-			m.flash = "file navigation not implemented"
-		default:
-			m.flash = "unsupported link"
+	local, isLocal, err := classifyLocalLink(dest)
+	if isLocal {
+		if err != nil {
+			m.flash = err.Error()
+			return nil
 		}
+		if m.managed {
+			return m.navigationCommand(navigationRequest{local: local})
+		}
+		if local.path != "" {
+			m.flash = "file navigation requires application"
+			return nil
+		}
+		m.jumpHeading(local.fragment, true)
+		return nil
+	}
+	if err := validateExternalURL(dest); err != nil {
+		m.flash = "unsupported link"
 		return nil
 	}
 	opener := m.openURL

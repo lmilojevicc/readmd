@@ -30,6 +30,7 @@ reader: false # r toggles the centered viewport for this session only
 footer_path: filename # reader footer only: filename (default) or full path
 reader_width: 120 # 1..10000 columns; viewport max(1, min(preference, terminal-2))
 table_cell_width: 40 # 1..10000 preferred body-cell wrap; full headers/atoms may exceed it
+image_alignment: left # graphical figures within prose margins: left, center, right
 images: true # only uses graphics when supported by the terminal
 remote_images: true # existing remote-image security/resource limits still apply
 `
@@ -43,12 +44,13 @@ type Config struct {
 	FooterPath     string `yaml:"footer_path"`
 	ReaderWidth    int    `yaml:"reader_width"`
 	TableCellWidth int    `yaml:"table_cell_width"`
+	ImageAlignment string `yaml:"image_alignment"`
 	Images         bool   `yaml:"images"`
 	RemoteImages   bool   `yaml:"remote_images"`
 }
 
 func Defaults() Config {
-	return Config{Style: "auto", Mouse: true, Picker: "list", FooterPath: "filename", ReaderWidth: 120, TableCellWidth: 40, Images: true, RemoteImages: true}
+	return Config{Style: "auto", Mouse: true, Picker: "list", FooterPath: "filename", ReaderWidth: 120, TableCellWidth: 40, ImageAlignment: "left", Images: true, RemoteImages: true}
 }
 
 func (c Config) Validate() error {
@@ -61,6 +63,11 @@ func (c Config) Validate() error {
 	case "list", "vimium":
 	default:
 		return fmt.Errorf("picker: want list or vimium; got %q", c.Picker)
+	}
+	switch c.ImageAlignment {
+	case "left", "center", "right":
+	default:
+		return fmt.Errorf("image_alignment: want left, center or right; got %q", c.ImageAlignment)
 	}
 	switch c.FooterPath {
 	case "filename", "full":
@@ -100,7 +107,7 @@ func Parse(data []byte) (Config, error) {
 		return c, errors.New("YAML: expected a mapping of settings")
 	}
 	mapping := doc.Content[0]
-	types := map[string]string{"style": "!!str", "theme": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "footer_path": "!!str", "reader_width": "!!int", "table_cell_width": "!!int", "images": "!!bool", "remote_images": "!!bool"}
+	types := map[string]string{"style": "!!str", "theme": "!!str", "mouse": "!!bool", "picker": "!!str", "reader": "!!bool", "footer_path": "!!str", "reader_width": "!!int", "table_cell_width": "!!int", "image_alignment": "!!str", "images": "!!bool", "remote_images": "!!bool"}
 	seen := map[string]bool{}
 	for i := 0; i < len(mapping.Content); i += 2 {
 		key, value := mapping.Content[i], mapping.Content[i+1]

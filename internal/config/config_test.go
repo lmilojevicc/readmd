@@ -12,7 +12,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	all := Config{Style: "notty", Mouse: false, Picker: "vimium", Reader: true, FooterPath: "full", ReaderWidth: 72, TableCellWidth: 24, Images: false, RemoteImages: false}
+	all := Config{Style: "notty", Mouse: false, Picker: "vimium", Reader: true, FooterPath: "full", ReaderWidth: 72, TableCellWidth: 24, ImageAlignment: "right", Images: false, RemoteImages: false}
 	partial := Defaults()
 	partial.Mouse = false
 	partial.Picker = "vimium"
@@ -26,7 +26,7 @@ func TestParse(t *testing.T) {
 		{"example", Example, Defaults()}, {"partial", "mouse: false\npicker: vimium\n", partial},
 		{"footer filename", "footer_path: filename\n", Defaults()},
 		{"footer full", "footer_path: full\n", full},
-		{"all keys", "style: notty\nmouse: false\npicker: vimium\nreader: true\nfooter_path: full\nreader_width: 72\ntable_cell_width: 24\nimages: false\nremote_images: false\n", all},
+		{"all keys", "style: notty\nmouse: false\npicker: vimium\nreader: true\nfooter_path: full\nreader_width: 72\ntable_cell_width: 24\nimage_alignment: right\nimages: false\nremote_images: false\n", all},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Parse([]byte(tc.body))
@@ -52,8 +52,9 @@ func TestParseInvalid(t *testing.T) {
 		{"footer_path: 1.5", "footer_path"}, {"footer_path: full\nfooter_path: filename", "duplicate"},
 		{"footer_path: full\nfooter_path: full", "duplicate"},
 		{"style: &a auto\nfooter_path: *a", "footer_path"},
+		{"picker: &a list\nimage_alignment: *a", "image_alignment"},
 	}
-	for _, key := range []string{"style", "picker", "mouse", "reader", "footer_path", "reader_width", "table_cell_width", "images", "remote_images"} {
+	for _, key := range []string{"style", "picker", "mouse", "reader", "footer_path", "reader_width", "table_cell_width", "image_alignment", "images", "remote_images"} {
 		for _, value := range []string{"null", "[]", "{}"} {
 			cases = append(cases, struct{ body, part string }{key + ": " + value, key})
 		}
@@ -68,6 +69,10 @@ func TestParseInvalid(t *testing.T) {
 			cases = append(cases, struct{ body, part string }{key + ": " + value, key})
 		}
 	}
+	for _, value := range []string{"''", "LEFT", "middle", "' center '", "true", "1", "1.5"} {
+		cases = append(cases, struct{ body, part string }{"image_alignment: " + value, "image_alignment"})
+	}
+	cases = append(cases, struct{ body, part string }{"image_alignment: left\nimage_alignment: right", "duplicate"})
 	for _, tc := range cases {
 		t.Run(tc.body, func(t *testing.T) {
 			_, err := Parse([]byte(tc.body))
@@ -342,6 +347,17 @@ func TestExistingEmptyConfigRemainsEmpty(t *testing.T) {
 			data, err := os.ReadFile(path)
 			if err != nil || string(data) != body {
 				t.Fatal("existing empty config was replaced")
+			}
+		})
+	}
+}
+
+func TestParseImageAlignment(t *testing.T) {
+	for _, alignment := range []string{"left", "center", "right"} {
+		t.Run(alignment, func(t *testing.T) {
+			c, err := Parse([]byte("image_alignment: " + alignment))
+			if err != nil || c.ImageAlignment != alignment {
+				t.Fatalf("config=%+v err=%v", c, err)
 			}
 		})
 	}

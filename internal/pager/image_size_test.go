@@ -14,6 +14,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
+	"github.com/lmilojevicc/readmd/internal/config"
 )
 
 func TestImageCellGeometry(t *testing.T) {
@@ -33,7 +34,8 @@ func TestImageCellGeometry(t *testing.T) {
 						m.width, m.reader = width, reader
 						m.readerWidth = 60
 						w, _ := m.readerGeom(reader)
-						avail := max(1, w-2)
+						padding := blockColumns(paletteConfig.Document)
+						avail := max(1, w-padding)
 						cw, ch := cells[0], cells[1]
 						if !validCellSize(cw, ch) {
 							cw, ch = cellW, cellH
@@ -47,7 +49,7 @@ func TestImageCellGeometry(t *testing.T) {
 						if float64(rows*ch) < height || float64((rows-1)*ch) >= height {
 							t.Fatalf("row rounding shrinks image or wastes a full row: %dx%d", cols, rows)
 						}
-						o := imgCtx{Enabled: true, Dir: "/local", Width: w, CellWidth: cells[0], CellHeight: cells[1], store: newImageStore()}
+						o := imgCtx{Enabled: true, Dir: "/local", Width: w, Padding: padding, CellWidth: cells[0], CellHeight: cells[1], store: newImageStore()}
 						ref := o.store.ensureRef(filepath.Join(o.Dir, "img.png"), &imgData{w: source.w, h: source.h})
 						o.store.applyGfx([]int{ref.id}, nil)
 						_, figs, _ := insertFigures("![picture](img.png)\n", o)
@@ -141,7 +143,7 @@ func TestREADMEImageLayout(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		width, cols, rows int
-	}{{40, 38, 12}, {80, 78, 24}, {120, 100, 31}} {
+	}{{40, 36, 11}, {80, 76, 23}, {120, 100, 31}} {
 		t.Run(fmt.Sprint(tc.width), func(t *testing.T) {
 			o := imgCtx{Enabled: true, NoRemote: true, Dir: "../..", Width: tc.width, store: newImageStore()}
 			out, pending, g, err := renderDoc(o, string(source), tc.width, "notty")
@@ -262,7 +264,7 @@ func TestCellSizeRenderSnapshots(t *testing.T) {
 			}
 			old := first().(renderedMsg)
 			w, _ := m.readerGeom(reader)
-			cols, rows := fitCells(800, 200, max(1, w-2), 10, 24)
+			cols, rows := fitCells(800, 200, max(1, w-4), 10, 24)
 			if len(old.gfx.tx) != 0 || len(old.gfx.places) != 1 || old.gfx.places[0] != (place{1, cols, rows}) {
 				t.Fatalf("render command did not snapshot first metrics: %+v", old.gfx)
 			}
@@ -272,7 +274,7 @@ func TestCellSizeRenderSnapshots(t *testing.T) {
 				t.Fatal("stale result must not apply placements")
 			}
 			fresh := latest().(renderedMsg)
-			cols, rows = fitCells(800, 200, max(1, w-2), 20, 40)
+			cols, rows = fitCells(800, 200, max(1, w-4), 20, 40)
 			wantEscape := ""
 			if before != [2]int{cols, rows} {
 				wantEscape = kittyPlace(1, cols, rows)
@@ -294,7 +296,7 @@ func TestCellSizeRenderSnapshots(t *testing.T) {
 				t.Run(action.name, func(t *testing.T) {
 					settle(t, m, action.cmd())
 					w, _ := m.readerGeom(m.reader)
-					cols, rows := fitCells(800, 200, max(1, w-2), 20, 40)
+					cols, rows := fitCells(800, 200, max(1, w-4), 20, 40)
 					if e.store.placedGeom(1) != [2]int{cols, rows} || e.store.data(1) != data || !bytes.Equal(data.pix, pixels) {
 						t.Fatal("resize/toggle changed cached pixels or ignored cell metrics")
 					}
@@ -306,5 +308,224 @@ func TestCellSizeRenderSnapshots(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestImageProseLeftEdge(t *testing.T) {
+	for _, style := range []string{paletteStyleName, "dark", "light", "notty"} {
+		for _, reader := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reader%v", style, reader), func(t *testing.T) {
+				m := New("PROSEEDGE\n\n![image](img.png)\n", "doc.md")
+				m.path = "/local/doc.md"
+				m.style, m.reader, m.gfx = style, reader, true
+				m.width, m.height, m.readerWidth = 80, 24, 40
+				m.store = newImageStore()
+				defer m.store.cancel()
+				m.store.ensureRef("/local/img.png", &imgData{w: 100, h: 100})
+				m.syncVPWidth()
+				settle(t, m, m.requestRender())
+				prose, image := -1, -1
+				for _, line := range strings.Split(bodyOf(m), "\n") {
+					line = ansi.Strip(line)
+					if i := strings.Index(line, "PROSEEDGE"); i >= 0 {
+						prose = ansi.StringWidth(line[:i])
+					}
+					if i := strings.IndexRune(line, kitty.Placeholder); i >= 0 {
+						image = ansi.StringWidth(line[:i])
+					}
+				}
+				if prose < 0 || image != prose {
+					t.Fatalf("image left edge = %d; prose left edge = %d", image, prose)
+				}
+			})
+		}
+	}
+}
+
+func imageEdges(t *testing.T, lines []string) (prose, image, cols, rows int) {
+	t.Helper()
+	prose, image = -1, -1
+	for _, line := range lines {
+		line = ansi.Strip(line)
+		if i := strings.Index(line, "PROSEEDGE"); i >= 0 {
+			prose = ansi.StringWidth(line[:i])
+		}
+		if i := strings.IndexRune(line, kitty.Placeholder); i >= 0 {
+			left := ansi.StringWidth(line[:i])
+			count := strings.Count(line, string(kitty.Placeholder))
+			if image >= 0 && (image != left || cols != count) {
+				t.Fatal("placeholder rows disagree")
+			}
+			image, cols = left, count
+			rows++
+		}
+	}
+	if prose < 0 || image < 0 {
+		t.Fatal("missing prose or graphical image")
+	}
+	return prose, image, cols, rows
+}
+
+func TestImageAlignmentGeometry(t *testing.T) {
+	for _, style := range []string{paletteStyleName, "dark", "light", "notty"} {
+		for _, reader := range []bool{false, true} {
+			for _, width := range []int{1, 2, 40, 80, 120} {
+				for _, preference := range []int{60, 120} {
+					for _, alignment := range []string{"", "left", "center", "right"} {
+						for _, dims := range [][2]int{{3, 5}, {250, 125}, {1000, 605}} {
+							t.Run(fmt.Sprintf("%s/reader%v/%d/cap%d/%s/%v", style, reader, width, preference, alignment, dims), func(t *testing.T) {
+								m := New("PROSEEDGE\n\n![image](img.png)\n\n```\n"+strings.Repeat("X", 200)+"\n```\n\n| Wide |\n| - |\n| "+strings.Repeat("Y", 200)+" |\n", "doc.md")
+								m.path = "/local/doc.md"
+								m.style, m.reader, m.gfx = style, reader, true
+								m.width, m.height, m.readerWidth = width, 100, preference
+								m.imgCfg.Alignment = alignment
+								m.store = newImageStore()
+								defer m.store.cancel()
+								m.store.ensureRef("/local/img.png", &imgData{w: dims[0], h: dims[1]})
+								m.syncVPWidth()
+								settle(t, m, m.requestRender())
+								prose, image, cols, rows := imageEdges(t, m.base)
+								w, margin := m.readerGeom(reader)
+								avail := max(1, w-2*prose)
+								wantCols, wantRows := fitCells(dims[0], dims[1], avail, 0, 0)
+								left := prose
+								switch alignment {
+								case "center":
+									left += max(0, avail-wantCols) / 2
+								case "right":
+									left += max(0, avail-wantCols)
+								}
+								if image != left || cols != wantCols || rows != wantRows || m.store.placedGeom(1) != [2]int{cols, rows} {
+									t.Fatalf("edge/grid = %d/%dx%d; want %d/%dx%d", image, cols, rows, left, wantCols, wantRows)
+								}
+								if w >= 40 {
+									viewProse, viewImage, _, _ := imageEdges(t, strings.Split(bodyOf(m), "\n"))
+									if viewProse != prose+margin || viewImage != image+margin || image+cols > w-prose {
+										t.Fatal("reader margin applied twice or image exceeds prose area")
+									}
+									before := strings.Join(m.base, "\n")
+									press(m, "l")
+									pan := m.vp.XOffset()
+									visibleCols := max(0, min(cols, image+cols-pan))
+									view := bodyOf(m)
+									if strings.Count(view, string(kitty.Placeholder)) != visibleCols*rows || strings.Join(m.base, "\n") != before {
+										t.Fatal("pan changed placeholder geometry or cached output")
+									}
+									for _, line := range strings.Split(ansi.Strip(view), "\n") {
+										if i := strings.IndexRune(line, kitty.Placeholder); i >= 0 && ansi.StringWidth(line[:i]) != margin+max(0, image-pan) {
+											t.Fatal("pan offset is not in display columns")
+										}
+									}
+									press(m, "0")
+								}
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestImageAlignmentSnapshots(t *testing.T) {
+	for _, alignment := range []string{"left", "center", "right"} {
+		for _, reader := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reader%v", alignment, reader), func(t *testing.T) {
+				t.Setenv("HOME", t.TempDir())
+				t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+				e := newImgEnv(t)
+				e.writeImg(t, "img.png", redPNG(t, 250, 125))
+				c := config.Defaults()
+				c.ImageAlignment, c.Reader, c.ReaderWidth = alignment, reader, 60
+				source := "PROSEEDGE\n\n![image](img.png)\n\n## After\n\n[LINKLABEL](https://example.com) and note[^1].\n\n[^1]: FOOTNOTEBODY\n\n```\n" + strings.Repeat("X", 200) + "\n```\n"
+				a, err := NewApplication(source, filepath.Join(e.dir, "doc.md"), e.dir, c, config.Theme{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer a.Close()
+				c.ImageAlignment = "left"
+				for _, fresh := range []bool{false, true} {
+					m := a.current
+					if fresh {
+						m, err = a.document(source, filepath.Join(e.dir, "fresh.md"))
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer m.Close()
+					}
+					if m.imgCfg.Alignment != alignment {
+						t.Fatal("fresh document lost immutable config")
+					}
+					m.gfx, m.width, m.height = true, 120, 100
+					m.syncVPWidth()
+					command := m.requestRender()
+					m.imgCfg.Alignment = "left"
+					if alignment == "left" {
+						m.imgCfg.Alignment = "right"
+					}
+					msg := command().(documentResult).msg.(renderedMsg)
+					w, _ := m.readerGeom(reader)
+					want, _, _, _, err := renderNavigationDoc(imgCtx{Enabled: true, Dir: e.dir, Width: w, Alignment: alignment, store: m.store}, source, w, m.style, config.Theme{})
+					if err != nil || msg.err != nil || msg.content != want {
+						t.Fatal("delayed command did not snapshot alignment")
+					}
+					m.Update(msg)
+					m.imgCfg.Alignment = alignment
+					for _, action := range []struct {
+						name string
+						cmd  func() tea.Cmd
+					}{
+						{"resize", func() tea.Cmd { _, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 100}); return cmd }},
+						{"reader toggle", func() tea.Cmd { return press(m, "r") }},
+						{"reload", func() tea.Cmd { return m.applyReload(reloadDoneMsg{body: []byte(source + "\nRELOADED\n")}) }},
+					} {
+						t.Run(fmt.Sprintf("fresh%v/%s", fresh, action.name), func(t *testing.T) {
+							// These unit checks deliver native document results directly.
+							m.managed = false
+							settle(t, m, action.cmd())
+							w, _ := m.readerGeom(m.reader)
+							want, _, _, _, err := renderNavigationDoc(imgCtx{Enabled: true, Dir: e.dir, Width: w, Alignment: alignment, store: m.store}, m.source, w, m.style, config.Theme{})
+							if err != nil || strings.Join(m.base, "\n") != want {
+								t.Fatal("fresh render lost alignment")
+							}
+							if len(m.heads) != 1 || !strings.Contains(m.stripped[m.heads[0].line], "After") || countFootnoteTargets(m.links) == 0 {
+								t.Fatal("image insertion broke heading or footnote geometry")
+							}
+							found := false
+							for _, target := range m.links {
+								if target.dest == "https://example.com" {
+									found = true
+									if len(target.regions) == 0 {
+										t.Fatal("missing link regions")
+									}
+									region := target.regions[0]
+									if ansi.Cut(m.stripped[region.line], region.start, region.end) != "LINKLABEL" {
+										t.Fatal("link region shifted")
+									}
+								}
+								if target.kind == targetFootnote {
+									region := target.regions[0]
+									if ansi.Cut(m.stripped[region.line], region.start, region.end) != "[^1]" || !strings.Contains(m.stripped[target.definition.line], "FOOTNOTEBODY") {
+										t.Fatal("footnote geometry shifted")
+									}
+								}
+							}
+							if !found {
+								t.Fatal("image insertion lost link geometry")
+							}
+							before := strings.Join(m.base, "\n")
+							press(m, "l")
+							if m.vp.XOffset() == 0 || strings.Join(m.base, "\n") != before {
+								t.Fatal("pan mutated image layout")
+							}
+							press(m, "0")
+							if m.vp.XOffset() != 0 {
+								t.Fatal("pan did not reset")
+							}
+						})
+					}
+				}
+			})
+		}
 	}
 }

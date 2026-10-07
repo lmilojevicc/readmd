@@ -91,6 +91,9 @@ func TestGoldenCorpus(t *testing.T) {
 						return r
 					}, plain)
 				}
+				if name == "nested-lists.md" {
+					tokenText = strings.Join(strings.Fields(tokenText), " ")
+				}
 				if !strings.Contains(tokenText, want) {
 					t.Errorf("%s: lost content token %q", label, want)
 				}

@@ -525,7 +525,7 @@ func TestRenderDocEndToEnd(t *testing.T) {
 	if len(pending) != 0 {
 		t.Fatalf("local figure must not be pending: %v", pending)
 	}
-	cols, rows := fitCells(40, 60, 78, 0, 0)
+	cols, rows := fitCells(40, 60, 76, 0, 0)
 	txWant := "\x1b_Ga=t,f=32,s=40,v=60,i=1,q=2,m="
 	if !strings.Contains(g.esc, txWant) {
 		t.Errorf("gfx controls must transmit natural pixels once: %q", g.esc)
@@ -549,8 +549,8 @@ func TestRenderDocEndToEnd(t *testing.T) {
 		if n != cols {
 			t.Errorf("line %d: %d placeholder cells, want %d", i, n, cols)
 		}
-		if w := ansi.StringWidth(lines[i]); w != cols {
-			t.Errorf("line %d width = %d, want %d", i, w, cols)
+		if w := ansi.StringWidth(lines[i]); w != cols+2 {
+			t.Errorf("line %d width = %d, want %d", i, w, cols+2)
 		}
 		if !strings.Contains(lines[i], string(kitty.Diacritic(k))) {
 			t.Errorf("grid row %d (line %d) must encode its row via diacritic: %q", k, i, lines[i])

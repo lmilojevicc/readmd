@@ -41,7 +41,8 @@ func (m *Model) currentLocation() documentLocation {
 }
 
 func (m *Model) jumpFootnote(target linkTarget) {
-	m.locations = append(m.locations, m.currentLocation())
+	m.pendingHeading = nil
+	m.pushLocation()
 	m.vp.SetYOffset(target.definition.line)
 	m.revealTargetRegion(target.definition)
 	m.flash = "footnote " + target.footnote
@@ -57,6 +58,9 @@ func (m *Model) revealTargetRegion(region targetRegion) {
 }
 
 func (m *Model) backLocation() tea.Cmd {
+	if m.managed {
+		return m.navigationCommand(navigationRequest{back: true})
+	}
 	if len(m.locations) == 0 {
 		return nil
 	}
@@ -66,6 +70,7 @@ func (m *Model) backLocation() tea.Cmd {
 	changed := m.reader != loc.reader
 	m.reader = loc.reader
 	m.pendingLocation = &loc
+	m.pendingHeading = nil
 	m.syncVPWidth()
 	if changed {
 		return m.requestRender()
@@ -491,4 +496,11 @@ func styleRegion(line string, start, end int, overlay string) string {
 		out.WriteString("\x1b[m" + strings.Join(active, ""))
 	}
 	return out.String()
+}
+
+func (m *Model) pushLocation() {
+	m.locations = append(m.locations, m.currentLocation())
+	if len(m.locations) > navigationHistoryLimit {
+		m.locations = m.locations[len(m.locations)-navigationHistoryLimit:]
+	}
 }

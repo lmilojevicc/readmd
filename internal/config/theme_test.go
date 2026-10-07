@@ -247,3 +247,107 @@ func TestParseThemeCalloutIconPadding(t *testing.T) {
 		}
 	}
 }
+
+func TestThemeGlyphWidthNamespaces(t *testing.T) {
+	for _, tc := range []struct {
+		name, data string
+		valid      bool
+	}{
+		{"custom tasks icon at limit", "callouts: {custom: {tasks: {icon: '1234'}}}", true},
+		{"custom tasks icon five columns", "callouts: {custom: {tasks: {icon: '12345'}}}", false},
+		{"custom tasks icon eight columns", "callouts: {custom: {tasks: {icon: '12345678'}}}", false},
+		{"custom tasks rail at limit", "callouts: {custom: {tasks: {rail: {glyph: '1234'}}}}", true},
+		{"custom tasks rail five columns", "callouts: {custom: {tasks: {rail: {glyph: '12345'}}}}", false},
+		{"custom tasks rail eight columns", "callouts: {custom: {tasks: {rail: {glyph: '12345678'}}}}", false},
+		{"checked task eight columns", "tasks: {checked: {glyph: '12345678'}}", true},
+		{"unchecked task eight columns", "tasks: {unchecked: {glyph: '12345678'}}", true},
+		{"task Unicode eight columns", "tasks: {checked: {glyph: '界界界界'}}", true},
+		{"task nine columns", "tasks: {checked: {glyph: '123456789'}}", false},
+		{"task control character", "tasks: {checked: {glyph: \"x\\ny\"}}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTheme([]byte(tc.data))
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%v error=%v", tc.valid, err)
+			}
+		})
+	}
+}
+
+func TestCustomCalloutThemeSchema(t *testing.T) {
+	for _, tc := range []struct {
+		name, data string
+		valid      bool
+	}{
+		{"custom", "callouts: {custom: {Experiment: {color: 13, icon: ⚗, rail: {fg: 12}, title: {bold: true}}, abstract: {color: 14}, summary: {title: {fg: 10}}}}", true},
+		{"default", "callouts: {custom: {test: {color: default}}}", true},
+		{"hex", "callouts: {custom: {test: {color: '#123456'}}}", true},
+		{"empty", "callouts: {custom: {}}", true},
+		{"null map", "callouts: {custom: null}", false},
+		{"null entry", "callouts: {custom: {test: null}}", false},
+		{"fold duplicate", "callouts: {custom: {Test: {}, test: {}}}", false},
+		{"exact duplicate", "callouts: {custom: {test: {}, test: {}}}", false},
+		{"ID initial", "callouts: {custom: {1test: {}}}", false},
+		{"ID spaces", "callouts: {custom: {'a b': {}}}", false},
+		{"ID nonASCII", "callouts: {custom: {界: {}}}", false},
+		{"none color", "callouts: {custom: {test: {color: none}}}", false},
+		{"unknown entry field", "callouts: {custom: {test: {background: 1}}}", false},
+		{"control icon", "callouts: {custom: {test: {icon: \"x\\ny\"}}}", false},
+		{"low color", "callouts: {custom: {test: {color: -1}}}", false},
+		{"high color", "callouts: {custom: {test: {color: 256}}}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			theme, err := ParseTheme([]byte(tc.data))
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%v error=%v", tc.valid, err)
+			}
+			if tc.name == "custom" {
+				if _, ok := theme.Callouts.Custom["experiment"]; !ok {
+					t.Fatal("ID not normalized")
+				}
+			}
+		})
+	}
+}
+
+func TestCustomCalloutThemeClone(t *testing.T) {
+	for _, data := range []string{"callouts: {custom: {test: {color: 13, icon: X, rail: {glyph: ▋, fg: 12}, title: {bold: true}}}}"} {
+		t.Run(data, func(t *testing.T) {
+			theme, err := ParseTheme([]byte(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot := theme.Clone()
+			entry := theme.Callouts.Custom["test"]
+			*entry.Color = "9"
+			*entry.Icon = "Y"
+			*entry.Rail.Glyph = "|"
+			*entry.Rail.FG = "10"
+			*entry.Title.Bold = false
+			delete(theme.Callouts.Custom, "test")
+			cloned := snapshot.Callouts.Custom["test"]
+			if *cloned.Color != "13" || *cloned.Icon != "X" || *cloned.Rail.Glyph != "▋" || *cloned.Rail.FG != "12" || !*cloned.Title.Bold {
+				t.Fatal("custom entries share pointers/map")
+			}
+		})
+	}
+}
+
+func TestCalloutsIsZero(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		zero bool
+	}{
+		{"", true}, {"callouts: {custom: {}}", true}, {"callouts: {custom: {test: {}}}", false}, {"callouts: {note: {color: 1}}", false}, {"callouts: {title: {bold: false}}", false},
+	} {
+		t.Run(tc.yaml, func(t *testing.T) {
+			theme, err := ParseTheme([]byte(tc.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if theme.Callouts.IsZero() != tc.zero {
+				t.Fatalf("zero=%v", theme.Callouts.IsZero())
+			}
+		})
+	}
+}

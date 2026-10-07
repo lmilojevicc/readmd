@@ -90,7 +90,7 @@ func codeBackgroundFormatter(inner chroma.Formatter, bg string) chroma.Formatter
 		background := ansi.Style{}.BackgroundColor(nil).String()
 		if paint {
 			background = ansi.Style{}.BackgroundColor(lipgloss.Color(bg)).String()
-			content = expandTableTabs(content)
+			content = expandDisplayTabs(content)
 		}
 		trailing := strings.HasSuffix(content, "\n")
 		lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")

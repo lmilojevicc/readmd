@@ -2,10 +2,12 @@ package pager
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/kitty"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -117,7 +119,7 @@ func TestReaderCodeOverflowKeepsMargin(t *testing.T) {
 func TestReaderHighlightAlignment(t *testing.T) {
 	const vw = 140
 	doc := "# Find\n\nneedle here\n\n" + strings.Repeat("tail filler\n\n", 8) +
-		strings.Repeat("z", 200) + "\n"
+		"```\n" + strings.Repeat("z", 200) + "\n```\n"
 	m := newRenderedModel(t, doc, vw, 24)
 	settle(t, m, press(m, "r"))
 
@@ -162,7 +164,7 @@ func TestReaderHighlightAlignment(t *testing.T) {
 	assertMarginFramed(t, m, strings.Repeat(" ", 10), 130)
 }
 
-// Reader lines stay unpadded at their natural width; the viewport is pinned
+// Reader lines stay unpadded; the viewport is pinned
 // to the centered reader column and content pans within that fixed frame.
 func TestReaderViewportFrame(t *testing.T) {
 	const vw = 140
@@ -174,7 +176,7 @@ func TestReaderViewportFrame(t *testing.T) {
 		t.Fatal("precondition: reader mode")
 	}
 	if lead := minLeading(m.stripped); lead != 2 { // glamour's own margin only
-		t.Fatalf("stored lines must use unwrapped content width without padding: lead %d", lead)
+		t.Fatalf("stored lines must retain only the renderer margin: lead %d", lead)
 	}
 	if widest := widestLine(m.stripped); widest <= 120 {
 		t.Fatalf("precondition: content overflows the column, widest %d", widest)
@@ -414,5 +416,119 @@ func TestReaderMarginIsDisplayOnlySpaces(t *testing.T) {
 		if esc := strings.IndexByte(l, '\x1b'); esc >= 0 && esc < 10 {
 			t.Fatalf("line %d: SGR inside the margin region: %q", i, l)
 		}
+	}
+}
+
+func TestReaderProseReflowsOnResizeAndToggle(t *testing.T) {
+	src := "# Reader heading with ordinary words\n\n" + strings.Repeat("alpha bravo charlie delta echo ", 30) + "\n"
+	for _, preference := range []int{60, 120} {
+		t.Run(fmt.Sprint(preference), func(t *testing.T) {
+			m := newRenderedModel(t, src, 160, 24)
+			m.readerWidth = preference
+			for _, action := range []struct {
+				name   string
+				width  int
+				toggle bool
+			}{
+				{"enter", 160, true},
+				{"shrink", 40, false},
+				{"grow", 160, false},
+				{"exit", 160, true},
+				{"reenter", 160, true},
+			} {
+				t.Run(action.name, func(t *testing.T) {
+					if action.toggle {
+						settle(t, m, press(m, "r"))
+					} else {
+						_, cmd := m.Update(tea.WindowSizeMsg{Width: action.width, Height: 24})
+						settle(t, m, cmd)
+					}
+					w, _ := m.readerGeom(m.reader)
+					want, _, _, err := renderDoc(imgCtx{}, src, w, m.style)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if m.source != src || strings.Join(m.base, "\n") != want || m.widest > w {
+						t.Fatalf("prose must rerender from raw source at width %d (widest %d)", w, m.widest)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestReaderStructuralLayoutAndPan(t *testing.T) {
+	prose := strings.Repeat("ordinary prose wraps independently ", 20) + "\n\n"
+	table := "| Complete Header | Last |\n| - | - |\n| " + strings.Repeat("wide body words ", 15) + " | " + strings.Repeat("z", 100) + " |\n"
+	mermaid := "```mermaid\nflowchart LR\nA[Alpha] --> B[Bravo] --> C[Charlie] --> D[Delta]\n```\n"
+	for _, width := range []int{40, 140} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			e := newImgEnv(t)
+			e.writeImg(t, "wide.png", redPNG(t, 800, 200))
+			src := prose + table + "\n" + mermaid + "\n![wide](wide.png)\n"
+			m := New(src, "doc.md")
+			m.path = filepath.Join(e.dir, "doc.md")
+			m.store, m.gfx, m.readerWidth = e.store, true, 60
+			defer m.Close()
+			_, cmd := m.Update(tea.WindowSizeMsg{Width: width, Height: 100})
+			settle(t, m, cmd)
+			settle(t, m, press(m, "r"))
+			w, margin := m.readerGeom(true)
+			out := strings.Join(m.base, "\n")
+			for _, block := range []string{table, mermaid} {
+				want, _, _, err := renderDoc(imgCtx{}, block, 0, m.style, m.tableCellWidth)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(out, strings.Trim(want, "\n")) {
+					t.Fatalf("reader changed intrinsic block layout: %q", block)
+				}
+			}
+			proseLines := 0
+			for _, line := range m.stripped {
+				if strings.Contains(line, "ordinary") {
+					proseLines++
+					if ansi.StringWidth(line) > w {
+						t.Fatalf("prose overflows reader column: %q", line)
+					}
+				}
+			}
+			if proseLines < 2 {
+				t.Fatal("mixed document prose must wrap")
+			}
+			cols, rows := fitCells(800, 200, max(1, w-4), 0, 0)
+			imageLine, imageRows := -1, 0
+			for i, line := range m.base {
+				if n := strings.Count(line, string(kitty.Placeholder)); n > 0 {
+					if imageLine < 0 {
+						imageLine = i
+					}
+					imageRows++
+					if n != cols {
+						t.Fatalf("image row has %d columns, want %d", n, cols)
+					}
+				}
+			}
+			if imageRows != rows || e.store.placedGeom(1) != [2]int{cols, rows} {
+				t.Fatalf("image grid/placement changed: rows %d, placement %v", imageRows, e.store.placedGeom(1))
+			}
+			if m.widest <= w {
+				t.Fatal("structural content must overflow the reader column")
+			}
+			m.vp.SetYOffset(imageLine)
+			before := strings.Count(bodyOf(m), string(kitty.Placeholder))
+			press(m, "l")
+			if m.vp.XOffset() != max(8, width/10) || strings.Count(bodyOf(m), string(kitty.Placeholder)) >= before {
+				t.Fatal("image grid must participate in whole-document horizontal pan")
+			}
+			if strings.Join(m.base, "\n") != out {
+				t.Fatal("panning must not mutate cached content")
+			}
+			assertMarginFramed(t, m, strings.Repeat(" ", margin), w+margin)
+			press(m, "0")
+			if m.vp.XOffset() != 0 || strings.Count(bodyOf(m), string(kitty.Placeholder)) != before {
+				t.Fatal("reset pan must restore the image grid")
+			}
+		})
 	}
 }

@@ -17,6 +17,7 @@ import (
 type Model struct {
 	managed, hidden bool
 	graphicsEpoch   uint64
+	navigationEpoch uint64
 	vp              viewport.Model
 	source          string
 	title           string
@@ -56,6 +57,7 @@ type Model struct {
 	targets         targetMode
 	locations       []documentLocation
 	pendingLocation *documentLocation
+	pendingHeading  *string
 
 	helpOpen   bool
 	helpTop    int
@@ -107,7 +109,7 @@ func (m *Model) Configure(c config.Config) error {
 	}
 	m.mouse, m.reader = c.Mouse, c.Reader
 	m.readerWidth, m.tableCellWidth = c.ReaderWidth, c.TableCellWidth
-	m.SetImages(ImageConfig{NoImages: !c.Images, NoRemote: !c.RemoteImages, DocDir: m.docDir()})
+	m.SetImages(ImageConfig{NoImages: !c.Images, NoRemote: !c.RemoteImages, DocDir: m.docDir(), Alignment: c.ImageAlignment})
 	return nil
 }
 
@@ -160,6 +162,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncVPWidth()
 		m.syncVPHeight()
 		if resized {
+			if m.width > 0 && len(m.stripped) > 0 && m.anchor == nil {
+				m.anchor = &anchorState{y: m.vp.YOffset(), total: len(m.stripped), heads: m.heads}
+			}
 			return m, tea.Batch(query, m.requestRender())
 		}
 		return m, query
@@ -231,6 +236,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
+		m.pendingHeading = nil
 		return m, m.handleMouseWheel(msg)
 
 	case tea.MouseClickMsg:
@@ -294,9 +300,20 @@ func (m *Model) syncView(base, stripped []string, heads []heading, links []linkT
 	}
 	m.clampXWidest()
 	m.applyPendingLocation()
+	if m.pendingHeading != nil {
+		if line, ok := headingLine(m.heads, *m.pendingHeading); ok {
+			m.vp.SetYOffset(line)
+			m.vp.SetXOffset(0)
+		}
+		m.pendingHeading = nil
+	}
 }
 
 func (m *Model) handleNormalKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "j", "down", "k", "up", "d", "ctrl+d", "u", "ctrl+u", "f", " ", "space", "pgdown", "b", "pgup", "g", "home", "G", "end", "o", "n", "N", "/", "h", "left", "l", "right", "0":
+		m.pendingHeading = nil
+	}
 	switch msg.String() {
 	case "q":
 		return m.quitCmd()
@@ -410,8 +427,7 @@ func (m *Model) syncVPHeight() {
 }
 
 // readerFrame reports whether the viewport is pinned to the centered reader
-// column. Lines retain their unwrapped content width; the margin is a
-// display-only prefix (see View).
+// column. The margin is a display-only prefix (see View).
 func (m *Model) readerFrame() (on bool, effW int) {
 	if m.reader {
 		w, _ := m.readerGeom(true)
@@ -452,36 +468,32 @@ func (m *Model) quitCmd() tea.Cmd {
 func (m *Model) requestRender() tea.Cmd {
 	m.stopTargets(true)
 	m.gen++
+	m.navigationEpoch++
 	if m.rendering {
 		return nil
 	}
 	src := m.source
 	m.rendering = true
 	w, _ := m.readerGeom(m.reader)
-	wrapWidth := w
-	if m.reader {
-		wrapWidth = 0
-	}
 	gen, st, cellWidth := m.gen, m.style, m.tableCellWidth
 	o := imgCtx{
 		Enabled:    m.gfx,
 		NoRemote:   m.imgCfg.NoRemote,
+		Alignment:  m.imgCfg.Alignment,
 		Dir:        m.docDir(),
 		Width:      w,
 		CellWidth:  m.cellWidth,
 		CellHeight: m.cellHeight,
 		store:      m.store,
 	}
-	theme := m.theme
+	theme := m.theme.Clone()
 	return func() tea.Msg {
-		out, pending, g, err := renderThemedDoc(o, src, wrapWidth, st, theme, cellWidth)
+		out, pending, g, heads, err := renderNavigationDoc(o, src, w, st, theme, cellWidth)
 		if err != nil {
 			return m.result(renderedMsg{err: err, gen: gen})
 		}
 		base := strings.Split(out, "\n")
 		stripped := splitStrip(out)
-		heads := extractHeadings(src)
-		mapHeadings(heads, stripped)
 		links := renderedTargets(src, base, stripped)
 		return m.result(renderedMsg{
 			content: out, gen: gen,

@@ -24,7 +24,7 @@ def png_chunk(kind, data):
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
 
-def check(binary, supported=True, disabled=False, browser=False):
+def check(binary, supported=True, disabled=False, browser=False, alignment="left"):
     with tempfile.TemporaryDirectory(prefix="readmd-image-pty-") as root:
         root = Path(root)
         env = os.environ.copy()
@@ -38,7 +38,7 @@ def check(binary, supported=True, disabled=False, browser=False):
         env["GOWORK"] = "off"
         config = root / "XDG_CONFIG_HOME/readmd/config.yaml"
         config.parent.mkdir()
-        original = b"style: notty\nmouse: false\nreader_width: 30\nremote_images: false\n"
+        original = f"style: notty\nmouse: false\nreader_width: 30\nremote_images: false\nimage_alignment: {alignment}\n".encode()
         config.write_bytes(original)
         pixels = b"\xff\x00\x00\xff" * 800 * 200
         scanlines = (b"\x00" + pixels[:800 * 4]) * 200
@@ -94,13 +94,13 @@ def check(binary, supported=True, disabled=False, browser=False):
         try:
             resize(40)
             if supported and not disabled:
-                receive_until(b"U=1,c=38,r=4,a=p")
+                receive_until(b"U=1,c=36,r=4,a=p")
                 assert query_count > 0, "no cell-size query"
                 # A report without SIGWINCH must still invalidate the rendered geometry.
                 start = len(transcript)
                 metrics = (14, 30)
                 os.write(master, b"\x1b[6;30;14t")
-                receive_until(b"U=1,c=38,r=5,a=p", start)
+                receive_until(b"U=1,c=36,r=5,a=p", start)
                 start = len(transcript)
                 previous_queries = query_count
                 resize(80)
@@ -108,7 +108,7 @@ def check(binary, supported=True, disabled=False, browser=False):
                 assert query_count > previous_queries, "resize did not query cell pixels again"
                 start = len(transcript)
                 os.write(master, b"r")
-                receive_until(b"U=1,c=28,r=4,a=p", start)
+                receive_until(b"U=1,c=26,r=4,a=p", start)
             else:
                 receive_until(b"wide local image")
                 assert query_count == 0, "graphics disabled/unsupported but cell query sent"
@@ -131,7 +131,7 @@ def check(binary, supported=True, disabled=False, browser=False):
                 assert b"a=t" not in hidden and b"a=p" not in hidden, "graphics over browser"
                 start = len(transcript)
                 os.write(master, b"\x1b")
-                receive_until(b"U=1,c=28,r=2,a=p", start)
+                receive_until(b"U=1,c=26,r=2,a=p", start)
             os.write(master, b"q")
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -168,7 +168,7 @@ def check(binary, supported=True, disabled=False, browser=False):
                     assert base64.b64decode(payload) == pixels, "RGBA payload changed"
             else:
                 assert not controls and query_count == 0, "unexpected graphics/query escapes"
-            print(f"PASS image PTY supported={supported} disabled={disabled} queries={query_count} browser={browser}")
+            print(f"PASS image PTY supported={supported} disabled={disabled} queries={query_count} browser={browser} alignment={alignment}")
         finally:
             if not exited:
                 os.kill(pid, signal.SIGKILL)
@@ -180,3 +180,6 @@ if __name__ == "__main__":
     executable = str(Path(sys.argv[1]).resolve())
     for case in ((True, False), (True, True), (False, False), (True, False, True)):
         check(executable, *case)
+
+    for alignment in ("center", "right"):
+        check(executable, alignment=alignment)

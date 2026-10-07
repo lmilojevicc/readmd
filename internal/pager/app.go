@@ -21,6 +21,9 @@ type Application struct {
 	width, height         int
 	settings              config.Config
 	theme                 config.Theme
+	history               []navigationEntry
+	navigation            *pendingNavigation
+	navigationGen         uint64
 }
 
 func NewApplication(source, name, cwd string, c config.Config, theme config.Theme) (*Application, error) {
@@ -70,6 +73,7 @@ func (a *Application) Close() {
 		return
 	}
 	a.closed = true
+	a.cancelNavigation()
 	if a.browser != nil {
 		a.browser.cancelOpen()
 		if a.browser.scanCancel != nil {
@@ -132,6 +136,7 @@ func FilterApplicationMessage(model tea.Model, msg tea.Msg) tea.Msg {
 }
 
 func (a *Application) showBrowser() tea.Cmd {
+	a.cancelNavigation()
 	if a.browser == nil {
 		root := a.cwd
 		if a.current.path != "" {
@@ -144,6 +149,7 @@ func (a *Application) showBrowser() tea.Cmd {
 	var cleanup tea.Cmd
 	if m := a.current; m != nil {
 		m.hidden = true
+		m.navigationEpoch++
 		m.graphicsEpoch++
 		if m.store != nil {
 			payload := kittyDeleteAll(m.store.transmittedIDs())
@@ -184,6 +190,7 @@ func (a *Application) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		a.cancelNavigation()
 		a.width, a.height = msg.Width, msg.Height
 		if a.browser != nil {
 			a.browser.size(msg.Width, msg.Height)
@@ -199,12 +206,29 @@ func (a *Application) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 		return a, nil
+	case navigationRead:
+		return a, a.navigationReadDone(msg)
 	case documentResult:
+		if p := a.navigation; p != nil && msg.owner == p.candidate {
+			if p.origin != a.current || a.browsing {
+				a.cancelNavigation()
+				return a, nil
+			}
+			if rendered, ok := msg.msg.(renderedMsg); ok {
+				return a, a.navigationRendered(rendered)
+			}
+			return a, nil
+		}
 		if msg.owner != a.current {
 			return a, nil
 		}
-		_, cmd := a.current.Update(msg.msg)
-		return a, cmd
+		if request, ok := msg.msg.(navigationRequest); ok {
+			if request.epoch != a.current.navigationEpoch || a.browsing || a.current.hidden {
+				return a, nil
+			}
+			return a, a.navigate(request)
+		}
+		return a, a.updateReader(msg.msg)
 	case scanFilesMsg:
 		b := a.browser
 		if b == nil || msg.gen != b.scanGen {
@@ -265,6 +289,8 @@ func (a *Application) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.current.Close()
 		}
+		a.cancelNavigation()
+		a.history = nil
 		a.current = m
 		a.browsing = false
 		a.fromBrowser = true
@@ -285,8 +311,11 @@ func (a *Application) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+f":
 				return a, a.showBrowser()
 			case "esc":
-				if a.fromBrowser && m.search.query == "" {
-					return a, a.showBrowser()
+				if m.search.query == "" {
+					if a.fromBrowser {
+						return a, a.showBrowser()
+					}
+					return a, a.quit()
 				}
 			case "q":
 				return a, a.quit()
@@ -296,8 +325,7 @@ func (a *Application) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.browsing {
 		return a, a.browser.updateList(msg)
 	}
-	_, cmd := a.current.Update(msg)
-	return a, cmd
+	return a, a.updateReader(msg)
 }
 func (a *Application) acceptAndOpen() tea.Cmd {
 	b := a.browser
@@ -366,4 +394,21 @@ func (a *Application) View() tea.View {
 		return a.browser.view(a.width, a.height)
 	}
 	return a.current.View()
+}
+
+func (a *Application) updateReader(msg tea.Msg) tea.Cmd {
+	previous := a.current.source
+	_, cmd := a.current.Update(msg)
+	if a.current.source != previous {
+		a.cancelNavigation()
+		retained := a.history[:0]
+		for _, entry := range a.history {
+			sameDocument := entry.path == a.current.path && (entry.path != "" || entry.source == previous)
+			if entry.reopen || !sameDocument {
+				retained = append(retained, entry)
+			}
+		}
+		a.history = retained
+	}
+	return cmd
 }

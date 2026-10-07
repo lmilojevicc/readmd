@@ -2,7 +2,6 @@ package pager
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,10 +24,8 @@ const paletteStyleName = "palette"
 
 const paletteChromaTheme = "readmd-palette"
 
-// Plain blockquote rail: magenta(13), styled directly inside the indent token
-// so the bar carries the color while quote text stays default-fg. Alert
-// splicing rewrites this exact sequence per type, so it must stay in sync
-// with barToken (pinned by test).
+// Plain blockquote rail: magenta(13), styled inside the indent token so
+// the bar carries color while quote text stays default-fg.
 const quoteBarSGR = "95"
 
 const quoteBarToken = "\x1b[" + quoteBarSGR + "m│\x1b[m "
@@ -146,7 +143,7 @@ func registerPaletteChroma() {
 }
 
 // Reader mode pins a centered viewport capped at readerWidth columns. Rendered
-// lines retain their natural width and pan within that viewport.
+// prose wraps to that width while structural content can pan within it.
 const readerWidth = 120
 
 // readerGeom returns the viewport width and display-only left margin.
@@ -192,11 +189,7 @@ func renderThemedDoc(o imgCtx, source string, width int, style string, theme con
 	if o.Width <= 0 {
 		o.Width = width
 	}
-	out, pending, g, err := renderThemedStyled(o, source, width, style, true, theme, cellWidths...)
-	if errors.Is(err, errAlertSplice) && theme.Callouts == (config.Callouts{}) {
-		return renderThemedStyled(o, source, width, style, false, theme, cellWidths...)
-	}
-	return out, pending, g, err
+	return renderThemedStyled(o, source, width, style, true, theme, cellWidths...)
 }
 
 func renderStyled(o imgCtx, source string, width int, style string, alertsOn bool, cellWidths ...int) (string, []string, docGfx, error) {
@@ -204,27 +197,37 @@ func renderStyled(o imgCtx, source string, width int, style string, alertsOn boo
 }
 
 func renderThemedStyled(o imgCtx, source string, width int, style string, alertsOn bool, theme config.Theme, cellWidths ...int) (string, []string, docGfx, error) {
+	return renderThemedStyledPositions(o, source, width, style, alertsOn, theme, nil, cellWidths...)
+}
+
+func renderThemedStyledPositions(o imgCtx, source string, width int, style string, alertsOn bool, theme config.Theme, positions *headingPositions, cellWidths ...int) (string, []string, docGfx, error) {
 	src := sanitize(source)
 	semanticSource := src
 	src = protectFootnoteMarkers(src)
 	src = expandMermaid(src)
-	src = substituteMath(src)
+	mathSource, mathEdits := substituteMathWithEdits(src)
+	if mathSource == src || mathPreservesHeadingSyntax(src, mathSource, mathEdits) {
+		src = mathSource
+	}
+	options, err := rendererOptions(style)
+	if err != nil {
+		return "", nil, docGfx{}, err
+	}
+	// Use the same document layout as prose, before display-only reader framing.
+	document := options.Styles.Document
+	o.Padding = blockColumns(document)
+	o.LeftPadding = o.Padding
+	if document.Margin != nil {
+		o.LeftPadding -= int(*document.Margin)
+	}
 	var figs []figure
 	var pending []string
 	if o.Enabled && o.store != nil {
 		src, figs, pending = insertFigures(src, o)
 	}
-	var alerts []alert
-	if alertsOn && (style == paletteStyleName || theme.Callouts != (config.Callouts{})) {
-		src, alerts = insertAlertSentinels(src)
-	}
 	post := func(rendered string) (string, docGfx, error) {
-		rendered, ok := spliceThemedAlerts(rendered, alerts, style, theme.Callouts)
-		if !ok {
-			return "", docGfx{}, errAlertSplice
-		}
 		g := docGfx{}
-		rendered, ok = spliceFigures(rendered, figs, renderFigure)
+		rendered, ok := spliceFigures(rendered, figs, renderFigure)
 		if ok && len(figs) > 0 {
 			g = gfxControls(o.store, figs)
 		}
@@ -234,28 +237,26 @@ func renderThemedStyled(o imgCtx, source string, width int, style string, alerts
 	for _, f := range figs {
 		intrinsic[f.token] = true
 	}
-	for _, a := range alerts {
-		intrinsic[a.startTok], intrinsic[a.endTok] = true, true
-	}
-	out, err := renderGlamour(src, width, style, intrinsic, theme, cellWidths...)
+	out, err := renderGlamour(src, width, style, options, intrinsic, theme, alertsOn, positions, cellWidths...)
 	if err != nil {
 		return "", nil, docGfx{}, err
 	}
 	out, g, err := post(out)
 	if err == nil {
+		// Normalize fresh display text before any geometry consumers: viewport
+		// clipping measures literal TABs as zero, but Lipgloss expands them later.
+		out = expandDisplayTabs(out)
 		out = styleFootnoteMarkers(semanticSource, out, style, theme)
+	}
+	if err == nil && positions != nil {
+		out, err = positions.collect(out)
 	}
 	return trimTrailing(out), pending, g, err
 }
 
-// Each render owns its AST and renderers. References resolve before nodes move
-// into temporary roots; complete containers retain their parsing context.
-func renderGlamour(src string, width int, style string, intrinsic map[string]bool, theme config.Theme, cellWidths ...int) (string, error) {
-	chromaRenderMu.Lock()
-	defer chromaRenderMu.Unlock()
+func rendererOptions(style string) (glamansi.Options, error) {
 	options := glamansi.Options{TableWrap: boolPtr(false), PreserveNewLines: true}
 	if style == paletteStyleName {
-		registerPaletteChroma()
 		options.Styles = paletteConfig
 		options.ChromaFormatter = "terminal16"
 	} else {
@@ -264,9 +265,20 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 		}
 		config, ok := styles.DefaultStyles[style]
 		if !ok {
-			return "", fmt.Errorf("%s: style not found", style)
+			return glamansi.Options{}, fmt.Errorf("%s: style not found", style)
 		}
 		options.Styles = *config
+	}
+	return options, nil
+}
+
+// Each render owns its AST and renderers. References resolve before nodes move
+// into temporary roots; complete containers retain their parsing context.
+func renderGlamour(src string, width int, style string, options glamansi.Options, intrinsic map[string]bool, theme config.Theme, alertsOn bool, positions *headingPositions, cellWidths ...int) (string, error) {
+	chromaRenderMu.Lock()
+	defer chromaRenderMu.Unlock()
+	if style == paletteStyleName {
+		registerPaletteChroma()
 	}
 	if err := configureChroma(&options, style, theme); err != nil {
 		return "", err
@@ -277,6 +289,17 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 	}
 	source := []byte(src)
 	doc := md.Parser().Parse(text.NewReader(source))
+	if positions != nil {
+		if err := positions.annotate(doc, &options, composer.prefix); err != nil {
+			return "", err
+		}
+	}
+	markInlineLinkIndices(doc)
+	callouts := map[*ast.Blockquote]alert{}
+	if alertsOn {
+		callouts = detectCallouts(doc, &source)
+	}
+	configureCallouts(callouts, &source, theme.Callouts, style == styles.NoTTYStyle || style == "")
 	space := text.NewSegment(len(source), len(source)+1)
 	source = append(source, ' ')
 	// Glamour's preserved-newline option includes soft breaks. Resolve those
@@ -299,9 +322,20 @@ func renderGlamour(src string, width int, style string, intrinsic map[string]boo
 	})
 	if composer.active {
 		composer.annotate(doc, &source)
+	}
+	if err := prepareInlineLinks(doc, &source, options, composer, callouts); err != nil {
+		return "", err
+	}
+	if composer.active {
 		if err := composer.prepareLinks(doc, &source, options); err != nil {
 			return "", err
 		}
+	}
+	if err := prepareProse(doc, &source, options, width, composer, callouts); err != nil {
+		return "", err
+	}
+	if err := prepareCallouts(doc, &source, options, composer, callouts); err != nil {
+		return "", err
 	}
 	var out bytes.Buffer
 	first := true
@@ -376,28 +410,4 @@ func trimTrailing(out string) string {
 		lines[i] = strings.TrimRight(lines[i], " ")
 	}
 	return strings.Join(lines, "\n")
-}
-
-// sepBefore returns "\n" when the line above pos is not blank, so prepending
-// it guarantees an inserted sentinel line never merges with preceding prose.
-func sepBefore(src string, pos int) string {
-	line := strings.TrimRight(src[:pos], " \t\r")
-	if !strings.HasSuffix(line, "\n") {
-		return ""
-	}
-	prev := strings.TrimRight(line[:len(line)-1], " \t\r")
-	if prev == "" || strings.HasSuffix(prev, "\n") {
-		return ""
-	}
-	return "\n"
-}
-
-// sepAfter returns "\n" when the text at pos does not already begin with a
-// blank line, so appending it guarantees one after an inserted sentinel.
-func sepAfter(src string, pos int) string {
-	rest := strings.TrimLeft(src[pos:], " \t")
-	if rest != "" && rest[0] != '\n' && rest[0] != '\r' {
-		return "\n"
-	}
-	return ""
 }
