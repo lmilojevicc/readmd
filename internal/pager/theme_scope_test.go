@@ -522,7 +522,9 @@ func TestThemeWrappedLinkCells(t *testing.T) {
 			for _, link := range []string{
 				"<https://example.com/" + strings.Repeat("long-path-", 24) + ">",
 				"[" + strings.Repeat("LABEL ", 30) + "](https://example.com)",
-				"<" + strings.Repeat("email", 40) + "@example.com>",
+				// Wider than 120 columns while keeping the local part within the
+				// 64 characters goldmark (>= 1.8.7) still autolinks, per RFC 5321.
+				"<" + strings.Repeat("email", 12) + "@" + strings.Repeat("example.", 10) + "com>",
 			} {
 				t.Run(fmt.Sprintf("%s/%d/%s", base, width, link), func(t *testing.T) {
 					src := "***" + link + "*** AFTER"
