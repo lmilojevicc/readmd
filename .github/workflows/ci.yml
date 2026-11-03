@@ -50,9 +50,13 @@ jobs:
         run: GOWORK=off go mod verify
       - name: Build
         run: GOWORK=off go build ./...
-      - name: Test with race detector
-        # One uncached race run also executes the full ordinary test suite.
-        run: GOWORK=off go test -race -count=1 ./...
+      - name: Test (race detector on Linux)
+        # One uncached race run also executes the full ordinary test suite. The
+        # race detector is platform-independent, so macOS runs the plain suite
+        # and stops gating the PR on the slower race build.
+        env:
+          RACE: ${{ runner.os == 'Linux' && '-race' || '' }}
+        run: GOWORK=off go test $RACE -count=1 ./...
       - name: Unix PTY smoke
         shell: bash
         run: |

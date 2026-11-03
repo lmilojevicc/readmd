@@ -1,0 +1,13 @@
+# Fast local checks before every push. Install once per clone: `lefthook install`.
+pre-push:
+  parallel: true
+  jobs:
+    - name: fmt
+      glob: "*.go"
+      run: GOWORK=off golangci-lint fmt --diff
+    - name: lint
+      glob: "*.go"
+      run: GOWORK=off golangci-lint run --new-from-rev=origin/main ./...
+    - name: vet
+      glob: "*.go"
+      run: GOWORK=off go vet ./...
